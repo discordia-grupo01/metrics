@@ -1,93 +1,73 @@
-# discordia-SERVICIO
+# discordia-metrics
 
-Servicio de <Epica> de Discordia. Cubre las historias: <lista de historias>.
+Servicio de métricas y estado de plataforma. Consume eventos de
+`discordia.events` y mantiene una proyección propia en PostgreSQL; no accede a
+las bases de identity, servers o messaging.
 
-## Stack
-- Lenguaje: Go
-- Framework: Gin (github.com/gin-gonic/gin)
-- BDD: PostgreSQL
-- Infra extra: <completar>
+## Funcionalidad
 
-## Setup local
+- `GET /v1/servers/{serverId}/metrics`: miembros activos, mensajes enviados y
+  nuevos miembros en un período.
+- `GET /v1/servers/{serverId}/metrics/growth`: evolución diaria de miembros.
+- `GET /v1/servers/{serverId}/metrics/export.csv`: exportación CSV del resumen.
+- `GET /v1/metrics/global`: usuarios activos, servidores creados y mensajes
+  enviados para staff.
+- `GET /v1/status`: incidentes activos para usuarios autenticados.
+- `POST /v1/metrics/incidents` y
+  `POST /v1/metrics/incidents/{id}/resolve`: publicar y resolver incidentes
+  para staff.
+
+Los endpoints de servidor consultan `GET /v1/servers/{serverId}/members/{userId}/permissions`
+en servers para verificar `ADMINISTRATOR`; no aceptan un usuario enviado por el
+cliente. Las métricas globales e incidentes usan `STAFF_USER_IDS`, que debe
+contener los UUID de staff provistos por el despliegue seguro. En desarrollo
+local se puede configurar `USER_ID_HEADER=X-User-Id`; en producción la identidad
+proviene del JWT validado por Kong.
+
+Si no hay eventos en un período, el resumen devuelve `has_activity: false` y
+los endpoints de crecimiento devuelven `points: []`, permitiendo que el cliente
+muestre el contexto de “sin actividad”.
+
+## Desarrollo local
+
 ```bash
 cp .env.example .env
-docker compose up -d db
-make run
+docker compose up --build
 ```
 
-## Variables de entorno
-| Variable | Default | Descripcion |
-|---|---|---|
-| ENVIRONMENT | development | `development` o `production`. |
-| HOST | 0.0.0.0 | IP donde escucha el servicio. `0.0.0.0` permite acceso desde otras redes/contenedores; `127.0.0.1` restringe a conexiones locales. |
-| PORT | 8080 | Puerto donde escucha el servicio. La API REST y el WebSocket comparten `${HOST}:${PORT}`. |
-| DATABASE_HOST | localhost | Host de PostgreSQL. |
-| DATABASE_PORT | 5432 | Puerto de PostgreSQL. |
-| DATABASE_NAME | - | Nombre de la base. En local, coincide con `POSTGRES_DB` de docker-compose.yml. |
-| DATABASE_USER | - | Usuario de conexion. En local, coincide con `POSTGRES_USER` de docker-compose.yml. |
-| DATABASE_PASSWORD | - | Password de conexion. En local, coincide con `POSTGRES_PASSWORD` de docker-compose.yml. |
-| JWT_SECRET | - | Secreto para firmar/validar JWT. |
-| RABBITMQ_URL | - | URL de conexion a RabbitMQ. |
+La API queda en `http://localhost:8080`; la base en `localhost:5432` y
+RabbitMQ en `localhost:5672`. Las migraciones se ejecutan mediante el servicio
+`migrations` antes de iniciar la API.
 
-`.env.example` solo trae la estructura (sin valores sensibles). Los valores reales van en tu propio `.env`, que nunca se sube (ya esta en `.gitignore`).
+## Estructura
 
-## Estructura de carpetas
+```text
+cmd/api/                 configuración, router y ciclo de vida
+internal/handler/        adaptadores HTTP
+internal/service/        períodos, autorización y exportación
+internal/repository/     PostgreSQL y agregaciones
+internal/events/         consumidor RabbitMQ idempotente
+internal/middleware/     identidad derivada del JWT/header local
+migrations/              esquema de proyección e incidentes
 ```
-go-template/
-├── cmd/
-│   └── api/
-│       └── main.go          entrypoint: arma el router y levanta el server
-├── internal/
-│   ├── handler/              handlers HTTP (reciben el request, parsean, llaman a service)
-│   ├── service/               logica de negocio
-│   ├── repository/            acceso a datos (Postgres, etc.)
-│   ├── model/                 structs de dominio / DTOs
-│   ├── middleware/            middlewares de Gin (auth, logging, etc.)
-│   └── events/                 publish/consume de eventos (RabbitMQ, etc.)
-├── migrations/                migraciones de BDD (ej. golang-migrate)
-├── .github/
-│   └── workflows/
-│       └── ci.yml            gofmt, build, vet y test en cada PR/push a main
-├── .githooks/
-│   └── pre-commit             hook de gofmt local
-├── openapi.yaml               contrato de la API REST
-├── docker-compose.yml         levanta el servicio + Postgres para desarrollo local
-├── Dockerfile                 build multi-stage para la imagen de produccion
-├── Makefile                   comandos run/test/build/migrate
-└── .env.example                estructura de variables de entorno (sin valores sensibles)
-```
-`internal/` esta pensado para no exponer estos paquetes fuera del modulo (restriccion de Go). Las carpetas de `internal/` y `migrations/` vienen vacias (`.gitkeep`) porque el codigo de negocio todavia no existe en el template.
 
-## Comandos (Makefile)
-- `make run` - corre el servicio localmente (`go run ./cmd/api`).
-- `make test` - corre los tests con cobertura (`go test ./... -cover`).
-- `make build` - compila el binario en `bin/api`.
-- `make migrate` - placeholder, todavia hay que definir la herramienta de migraciones.
+## Eventos consumidos
 
-## Tests
+`servers.member_joined`, `servers.member_left`, `servers.server_updated` y
+`messaging.message_created`. El `event_id` es clave primaria, por lo que las
+entregas duplicadas no inflan las métricas. Los eventos inválidos se reencolan
+para no perderlos silenciosamente.
+
+## Validación
+
 ```bash
-make test
+gofmt -l .
+go vet ./...
+go test ./... -cover
+go build ./...
 ```
-Cobertura minima: 70% (requisito del proyecto).
 
-## Endpoints
-Ver openapi.yaml.
-
-## Eventos que publica
-- <evento> - cuando se dispara
-
-## Eventos que consume
-- <evento> - que hace al recibirlo
-
-## Health checks
-- GET /livez
-- GET /readyz
-
-## Formateo automatico
-Este repo se autoformatea con gofmt en cada commit. Activalo una vez por clone:
-```bash
-git config core.hooksPath .githooks
-```
-Si usan VS Code con la extension oficial de Go, tambien formatea al guardar (ya configurado en .vscode/settings.json).
-
-El CI corre `gofmt -l` como red de seguridad (falla si encuentra archivos sin formatear), por si alguien clono sin activar el hook.
+El workflow de GitHub Actions ejecuta estas verificaciones en cada push y pull
+request. El compose de [infrastructure](../infrastructure/) agrega PostgreSQL,
+migraciones, RabbitMQ y el servicio al stack completo; Kong expone las rutas
+con JWT.
