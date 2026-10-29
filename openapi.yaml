@@ -1,16 +1,72 @@
 openapi: 3.0.3
 info:
-  title: Discordia - SERVICIO
+  title: Discordia Metrics
   version: "1.0.0"
 paths:
   /livez:
     get:
-      summary: Liveness check
       responses:
-        "200": { description: OK }
+        "200": {description: OK}
   /readyz:
     get:
-      summary: Readiness check
       responses:
-        "200": { description: OK }
-        "503": { description: Dependencias no disponibles }
+        "200": {description: Ready}
+        "503": {description: Database unavailable}
+  /v1/servers/{serverId}/metrics:
+    get:
+      parameters:
+        - {$ref: "#/components/parameters/ServerId"}
+        - {$ref: "#/components/parameters/From"}
+        - {$ref: "#/components/parameters/To"}
+      responses:
+        "200": {description: Server summary}
+        "403": {description: Administrator permission required}
+  /v1/servers/{serverId}/metrics/growth:
+    get:
+      parameters:
+        - {$ref: "#/components/parameters/ServerId"}
+        - {$ref: "#/components/parameters/From"}
+        - {$ref: "#/components/parameters/To"}
+      responses:
+        "200": {description: Daily member growth}
+  /v1/servers/{serverId}/metrics/export.csv:
+    get:
+      parameters:
+        - {$ref: "#/components/parameters/ServerId"}
+        - {$ref: "#/components/parameters/From"}
+        - {$ref: "#/components/parameters/To"}
+      responses:
+        "200": {description: CSV export}
+  /v1/metrics/global:
+    get:
+      responses:
+        "200": {description: Global summary}
+        "403": {description: Staff role required}
+  /v1/status:
+    get:
+      responses:
+        "200": {description: Active incidents}
+  /v1/metrics/incidents:
+    post:
+      responses:
+        "201": {description: Incident created}
+        "403": {description: Staff role required}
+  /v1/metrics/incidents/{id}/resolve:
+    post:
+      responses:
+        "204": {description: Incident resolved}
+components:
+  parameters:
+    ServerId:
+      name: serverId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    From:
+      name: from
+      in: query
+      schema: {type: string, format: date-time}
+    To:
+      name: to
+      in: query
+      schema: {type: string, format: date-time}
