@@ -1,73 +1,250 @@
 # discordia-metrics
 
-Servicio de métricas y estado de plataforma. Consume eventos de
-`discordia.events` y mantiene una proyección propia en PostgreSQL; no accede a
-las bases de identity, servers o messaging.
+Servicio de métricas de actividad y estado de plataforma de Discordia. Mantiene
+una proyección local de eventos de RabbitMQ y expone una API HTTP para
+administradores de servidores y staff de la plataforma.
 
-## Funcionalidad
+## Historias cubiertas
 
-- `GET /v1/servers/{serverId}/metrics`: miembros activos, mensajes enviados y
-  nuevos miembros en un período.
-- `GET /v1/servers/{serverId}/metrics/growth`: evolución diaria de miembros.
-- `GET /v1/servers/{serverId}/metrics/export.csv`: exportación CSV del resumen.
-- `GET /v1/metrics/global`: usuarios activos, servidores creados y mensajes
-  enviados para staff.
-- `GET /v1/status`: incidentes activos para usuarios autenticados.
-- `POST /v1/metrics/incidents` y
-  `POST /v1/metrics/incidents/{id}/resolve`: publicar y resolver incidentes
-  para staff.
+- Ver métricas de actividad de un servidor.
+- Informar explícitamente cuando un período no tuvo actividad.
+- Restringir las métricas de servidor a usuarios con `ADMINISTRATOR`.
+- Ver métricas globales para usuarios de staff.
+- Consultar la evolución diaria de miembros.
+- Exportar el resumen de métricas de un servidor a CSV.
+- Publicar, consultar y resolver incidentes de la plataforma.
 
-Los endpoints de servidor consultan `GET /v1/servers/{serverId}/members/{userId}/permissions`
-en servers para verificar `ADMINISTRATOR`; no aceptan un usuario enviado por el
-cliente. Las métricas globales e incidentes usan `STAFF_USER_IDS`, que debe
-contener los UUID de staff provistos por el despliegue seguro. En desarrollo
-local se puede configurar `USER_ID_HEADER=X-User-Id`; en producción la identidad
-proviene del JWT validado por Kong.
+## Stack
 
-Si no hay eventos en un período, el resumen devuelve `has_activity: false` y
-los endpoints de crecimiento devuelven `points: []`, permitiendo que el cliente
-muestre el contexto de “sin actividad”.
+- Lenguaje: Go 1.22.
+- Framework HTTP: Gin.
+- Base de datos: PostgreSQL 16.
+- Eventos: RabbitMQ, exchange `discordia.events`.
+- Autenticación externa: Kong valida el JWT; el servicio obtiene el usuario del
+  claim `sub`.
+- Autorización de servidor: consulta HTTP al servicio `servers`.
+- Imagen: Docker multi-stage basada en `golang:1.22-alpine`.
+
+El servicio es dueño de su proyección y de los incidentes. No accede
+directamente a las bases de datos de `identify`, `servers` o `messaging`.
+
+## Configuración
+
+Las variables reales se configuran mediante `.env` o el entorno del despliegue.
+No se deben commitear archivos `.env`, contraseñas, tokens ni credenciales.
+Usar [.env.example](.env.example) como plantilla.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `ENVIRONMENT` | `development` | Entorno de ejecución. En `production` Gin usa release mode. |
+| `HOST` | `0.0.0.0` | Dirección de escucha HTTP. |
+| `PORT` | `8080` | Puerto HTTP. |
+| `DATABASE_HOST` | `localhost` | Host de PostgreSQL. |
+| `DATABASE_PORT` | `5432` | Puerto de PostgreSQL. |
+| `DATABASE_NAME` | `discordia_metrics` | Base de datos de la proyección. |
+| `DATABASE_USER` | `discordia` | Usuario de PostgreSQL. |
+| `DATABASE_PASSWORD` | `discordia` | Contraseña de PostgreSQL. En producción debe ser obligatoria y secreta. |
+| `DATABASE_SSLMODE` | `disable` | `disable` en local; usar `require` o el modo indicado por el proveedor en producción. |
+| `RABBITMQ_URL` | vacío | URL AMQP. Si está vacía, la API arranca pero no consume eventos. |
+| `EVENTS_EXCHANGE` | `discordia.events` | Exchange topic compartido por los servicios. |
+| `EVENTS_QUEUE` | `metrics` | Cola durable exclusiva de esta proyección. |
+| `SERVERS_URL` | `http://servers:8080` | URL interna de `servers` para validar permisos. |
+| `STAFF_USER_IDS` | vacío | UUIDs separados por coma autorizados para métricas globales e incidentes. |
+| `USER_ID_HEADER` | vacío | Header de identidad para desarrollo local. No configurarlo en producción. |
+
+### Identidad y autorización
+
+En el flujo normal, Kong valida la firma y expiración del JWT y enruta la
+solicitud al servicio. Metrics lee el claim `sub` del bearer token. No confía
+en un `user_id` enviado como parámetro o en el cuerpo.
+
+Para métricas de un servidor, metrics consulta:
+
+```text
+GET {SERVERS_URL}/v1/servers/{serverId}/members/{userId}/permissions
+```
+
+La solicitud se permite únicamente si la respuesta contiene el permiso
+`ADMINISTRATOR`. La consulta conserva el header `Authorization` original.
+
+Las métricas globales y la gestión de incidentes requieren que el `sub` esté
+incluido en `STAFF_USER_IDS`. Esta configuración es una medida operativa
+provisoria hasta que exista una fuente de verdad de roles de staff integrada
+con el servicio de administración.
+
+`USER_ID_HEADER` existe únicamente para desarrollo local y pruebas manuales. No
+debe configurarse en un entorno expuesto: cualquier cliente que pueda enviar
+ese header podría suplantar la identidad.
+
+## API
+
+El contrato completo está en [openapi.yaml](openapi.yaml). Todas las rutas
+`/v1/**` requieren autenticación, y Kong aplica JWT antes de llegar al
+servicio.
+
+### Métricas de un servidor
+
+- `GET /v1/servers/{serverId}/metrics`
+- `GET /v1/servers/{serverId}/metrics/growth`
+- `GET /v1/servers/{serverId}/metrics/export.csv`
+
+Los parámetros `from` y `to` son timestamps RFC3339. Si se omiten, se usa el
+período de los últimos 30 días. El período máximo permitido es de 366 días y
+`from` debe ser anterior a `to`.
+
+El resumen incluye:
+
+- `active_members`: usuarios distintos que generaron actividad registrada en el
+  período;
+- `messages_sent`: mensajes registrados por `messaging.message_created`;
+- `new_members`: altas registradas por `servers.member_joined`;
+- `has_activity`: indica si alguna de esas métricas es distinta de cero.
+
+Cuando no existe actividad, la respuesta conserva `200 OK`, devuelve contadores
+en cero y `has_activity: false`. El cliente puede mostrar un mensaje
+contextualizado en lugar de un gráfico vacío.
+
+El endpoint de crecimiento devuelve puntos diarios. Los días sin cambios se
+incluyen con el total calculado para ese día.
+
+La exportación devuelve `text/csv` con las columnas:
+
+```text
+from,to,active_members,messages_sent,new_members
+```
+
+### Métricas globales
+
+`GET /v1/metrics/global` requiere staff y devuelve un resumen agregado de todos
+los servidores dentro del período solicitado.
+
+### Estado e incidentes
+
+- `GET /v1/status`: devuelve los incidentes activos para cualquier usuario
+  autenticado.
+- `POST /v1/metrics/incidents`: crea un incidente; requiere staff.
+- `POST /v1/metrics/incidents/{id}/resolve`: resuelve un incidente activo;
+  requiere staff.
+
+Un incidente contiene título, descripción, servicios afectados y estado. Al
+resolverlo deja de aparecer en `GET /v1/status`.
+
+## Eventos consumidos
+
+Metrics declara la cola `EVENTS_QUEUE` y la vincula al exchange
+`EVENTS_EXCHANGE` con estas routing keys:
+
+| Routing key | Proyección |
+|---|---|
+| `servers.member_joined` | Registra un alta de miembro. |
+| `servers.member_left` | Registra una baja de miembro. |
+| `servers.server_updated` | Registra la creación/actualización publicada por servers. |
+| `messaging.message_created` | Registra un mensaje sin almacenar su texto. |
+
+Cada evento debe tener un `event_id` UUID y `occurred_at`. `event_id` es clave
+primaria en `metric_events`, por lo que las entregas duplicadas son
+idempotentes. Los eventos inválidos se descartan con `Nack(requeue=false)` para
+evitar reintentos infinitos; los errores transitorios de persistencia se
+reencolan.
+
+La entrega es eventualmente consistente: una métrica puede tardar en reflejar
+un evento hasta que RabbitMQ lo entregue y el consumidor lo persista.
+
+## Persistencia y migraciones
+
+Las migraciones ordenadas están en [migrations](migrations). La migración
+inicial crea:
+
+- `metric_events`, la proyección de actividad;
+- índices por servidor, tipo y fecha;
+- `incidents`, el estado de incidentes de plataforma.
+
+En desarrollo standalone, Docker Compose ejecuta el servicio `migrations`
+antes de iniciar `api`. Para ejecutar una migración manual:
+
+```bash
+set DATABASE_URL=postgres://discordia:discordia@localhost:5432/discordia_metrics?sslmode=disable
+make migrate
+```
+
+En PowerShell se puede definir la variable con:
+
+```powershell
+$env:DATABASE_URL = "postgres://discordia:discordia@localhost:5432/discordia_metrics?sslmode=disable"
+make migrate
+```
 
 ## Desarrollo local
+
+Requisitos:
+
+- Go 1.22 o compatible;
+- Docker Desktop;
+- Docker Compose.
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-La API queda en `http://localhost:8080`; la base en `localhost:5432` y
-RabbitMQ en `localhost:5672`. Las migraciones se ejecutan mediante el servicio
-`migrations` antes de iniciar la API.
+La API queda disponible en `http://localhost:8080`, PostgreSQL en
+`localhost:5432`, RabbitMQ en `localhost:5672` y la consola de RabbitMQ en
+`http://localhost:15672`.
+
+Para ejecutar solamente el binario contra dependencias ya levantadas:
+
+```bash
+make run
+```
 
 ## Estructura
 
 ```text
-cmd/api/                 configuración, router y ciclo de vida
-internal/handler/        adaptadores HTTP
-internal/service/        períodos, autorización y exportación
-internal/repository/     PostgreSQL y agregaciones
-internal/events/         consumidor RabbitMQ idempotente
-internal/middleware/     identidad derivada del JWT/header local
-migrations/              esquema de proyección e incidentes
+metrics/
+├── cmd/api/
+│   └── main.go                 configuración, router y ciclo de vida
+├── internal/
+│   ├── events/                 consumidor RabbitMQ e idempotencia de eventos
+│   ├── handler/                adaptadores HTTP y códigos de respuesta
+│   ├── middleware/             identidad derivada del JWT/header local
+│   ├── model/                  DTOs de métricas e incidentes
+│   ├── repository/             consultas y persistencia PostgreSQL
+│   └── service/                períodos, autorización y exportación CSV
+├── migrations/                 migraciones de PostgreSQL
+├── .github/workflows/ci.yml    formato, tests, vet, build e imagen Docker
+├── Dockerfile                  imagen multi-stage de producción
+├── docker-compose.yml          API, PostgreSQL, migraciones y RabbitMQ
+├── Makefile                    comandos de desarrollo
+├── openapi.yaml                contrato HTTP
+└── .env.example                configuración sin secretos
 ```
 
-## Eventos consumidos
+## Integración con el stack
 
-`servers.member_joined`, `servers.member_left`, `servers.server_updated` y
-`messaging.message_created`. El `event_id` es clave primaria, por lo que las
-entregas duplicadas no inflan las métricas. Los eventos inválidos se reencolan
-para no perderlos silenciosamente.
+El compose de [infrastructure](../infrastructure/) agrega:
+
+- `metrics-db`;
+- `metrics-migrations`;
+- `metrics`;
+- el volumen `metrics_db_data`;
+- la configuración necesaria para RabbitMQ y `servers`.
+
+Kong expone las rutas mediante `metrics-service` y aplica JWT. En un despliegue
+distribuido, configurar `METRICS_UPSTREAM_URL` en
+[gateway/.env.example](../gateway/.env.example) con la URL interna o de
+Tailscale correspondiente.
 
 ## Validación
+
+Desde este módulo:
 
 ```bash
 gofmt -l .
 go vet ./...
 go test ./... -cover
 go build ./...
+docker build -t discordia-metrics:ci .
 ```
 
-El workflow de GitHub Actions ejecuta estas verificaciones en cada push y pull
-request. El compose de [infrastructure](../infrastructure/) agrega PostgreSQL,
-migraciones, RabbitMQ y el servicio al stack completo; Kong expone las rutas
-con JWT.
+El workflow de GitHub Actions ejecuta automáticamente `gofmt`, `go build`,
+`go vet`, `go test` y el build de la imagen Docker en cada push y pull request.
