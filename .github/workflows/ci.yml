@@ -9,22 +9,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: discordia_servicio
-          POSTGRES_USER: discordia
-          POSTGRES_PASSWORD: discordia
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U discordia -d discordia_servicio"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        name: Checkout
       - uses: actions/setup-go@v5
+        name: Setup Go
         with:
           go-version: "1.22"
       - name: Chequeo de formato (gofmt)
@@ -36,8 +26,11 @@ jobs:
             exit 1
           fi
 
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test ./... -cover
+      - name: Build Go
+        run: go build ./...
+      - name: Go vet
+        run: go vet ./...
+      - name: Go test
+        run: go test ./... -cover
       - name: Build de imagen Docker
         run: docker build -t discordia-metrics:ci .
