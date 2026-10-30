@@ -1,16 +1,467 @@
 openapi: 3.0.3
 info:
-  title: Discordia - SERVICIO
-  version: "1.0.0"
+  title: Discordia - Metrics
+  version: 1.0.0
+  description: >-
+    API de métricas de actividad y estado de plataforma de Discordia.
+
+    El servicio mantiene una proyección local de eventos publicados en
+    RabbitMQ. No accede directamente a las bases de datos de otros servicios.
+    Kong valida el JWT en el gateway; las rutas /v1/** requieren un bearer
+    token válido.
+
+    Las métricas de servidor requieren que el usuario autenticado tenga
+    ADMINISTRATOR en el servidor consultado. Las métricas globales y la gestión
+    de incidentes requieren un usuario incluido en STAFF_USER_IDS.
+  contact:
+    name: Equipo Discordia
+servers:
+  - url: http://localhost:8080
+    description: Desarrollo local directo
+  - url: http://localhost:8000
+    description: Gateway local
+tags:
+  - name: ops
+    description: Health checks del servicio
+  - name: server-metrics
+    description: Métricas de actividad y crecimiento de un servidor
+  - name: platform-metrics
+    description: Métricas globales de la plataforma
+  - name: incidents
+    description: Estado e incidentes visibles en la plataforma
 paths:
   /livez:
     get:
-      summary: Liveness check
+      tags: [ops]
+      summary: Comprobar que el proceso está vivo
+      description: No consulta dependencias externas.
       responses:
-        "200": { description: OK }
+        "200":
+          description: El proceso está vivo.
   /readyz:
     get:
-      summary: Readiness check
+      tags: [ops]
+      summary: Comprobar disponibilidad operativa
+      description: Verifica que el servicio puede conectarse a PostgreSQL.
       responses:
-        "200": { description: OK }
-        "503": { description: Dependencias no disponibles }
+        "200":
+          description: Servicio listo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: PostgreSQL no disponible.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/servers/{serverId}/metrics:
+    get:
+      tags: [server-metrics]
+      summary: Consultar el resumen de actividad de un servidor
+      description: >-
+        Devuelve miembros activos, mensajes enviados y nuevos miembros dentro
+        del período solicitado. Requiere el permiso ADMINISTRATOR en el
+        servidor. Si no hubo actividad, responde 200 con contadores en cero y
+        has_activity=false.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Resumen de actividad.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Summary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: El usuario no tiene permisos de administración.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/servers/{serverId}/metrics/growth:
+    get:
+      tags: [server-metrics]
+      summary: Consultar el crecimiento diario de miembros
+      description: >-
+        Devuelve un punto por día dentro del período. Los días sin cambios se
+        incluyen con el total calculado. Requiere ADMINISTRATOR.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Serie diaria de miembros.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrowthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: El usuario no tiene permisos de administración.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/servers/{serverId}/metrics/export.csv:
+    get:
+      tags: [server-metrics]
+      summary: Exportar métricas de un servidor a CSV
+      description: >-
+        Genera un archivo CSV con el resumen del período. Requiere
+        ADMINISTRATOR.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Archivo CSV generado.
+          headers:
+            Content-Disposition:
+              description: Nombre sugerido del archivo.
+              schema:
+                type: string
+                example: 'attachment; filename="metrics.csv"'
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: El usuario no tiene permisos de administración.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/metrics/global:
+    get:
+      tags: [platform-metrics]
+      summary: Consultar métricas globales de la plataforma
+      description: >-
+        Agrega actividad de todos los servidores. Requiere que el usuario
+        autenticado esté incluido en STAFF_USER_IDS.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Resumen global.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: El usuario no tiene rol de staff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/status:
+    get:
+      tags: [incidents]
+      summary: Consultar el estado actual de la plataforma
+      description: Devuelve los incidentes activos para usuarios autenticados.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Incidentes activos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/metrics/incidents:
+    post:
+      tags: [incidents]
+      summary: Publicar un incidente
+      description: Requiere que el usuario autenticado sea staff.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncidentInput"
+      responses:
+        "201":
+          description: Incidente creado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: El usuario no tiene rol de staff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/metrics/incidents/{id}/resolve:
+    post:
+      tags: [incidents]
+      summary: Resolver un incidente
+      description: Requiere staff y un incidente actualmente activo.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IncidentId"
+      responses:
+        "204":
+          description: Incidente resuelto.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: El usuario no tiene rol de staff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: El incidente no existe o ya estaba resuelto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ServerId:
+      name: serverId
+      in: path
+      required: true
+      description: UUID del servidor.
+      schema:
+        type: string
+        format: uuid
+    IncidentId:
+      name: id
+      in: path
+      required: true
+      description: UUID del incidente.
+      schema:
+        type: string
+        format: uuid
+    From:
+      name: from
+      in: query
+      required: false
+      description: Inicio inclusivo del período en RFC3339. Default, últimos 30 días.
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      required: false
+      description: Fin exclusivo del período en RFC3339. Default, ahora.
+      schema:
+        type: string
+        format: date-time
+  responses:
+    BadRequest:
+      description: Parámetros o cuerpo inválidos.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Falta una credencial válida.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: from/to must be RFC3339, from before to, maximum 366 days
+    ReadyResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ready
+    Summary:
+      type: object
+      required:
+        - from
+        - to
+        - active_members
+        - messages_sent
+        - new_members
+        - has_activity
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        active_members:
+          type: integer
+          minimum: 0
+          description: Usuarios distintos con actividad registrada en el período.
+        messages_sent:
+          type: integer
+          minimum: 0
+        new_members:
+          type: integer
+          minimum: 0
+        has_activity:
+          type: boolean
+          description: False cuando todos los contadores del período son cero.
+    GlobalSummary:
+      type: object
+      required:
+        - from
+        - to
+        - active_users
+        - servers_created
+        - messages_sent
+        - has_activity
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        active_users:
+          type: integer
+          minimum: 0
+          description: Usuarios distintos con mensajes o cambios de membresía en el período.
+        servers_created:
+          type: integer
+          minimum: 0
+          description: Servidores cuyo primer evento server_updated ocurrió en el período.
+        messages_sent:
+          type: integer
+          minimum: 0
+        has_activity:
+          type: boolean
+          description: False cuando todos los contadores del período son cero.
+    GrowthResponse:
+      type: object
+      required: [from, to, has_activity, points]
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        has_activity:
+          type: boolean
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrowthPoint"
+    GrowthPoint:
+      type: object
+      required: [date, members]
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2026-10-29"
+        members:
+          type: integer
+          minimum: 0
+    IncidentInput:
+      type: object
+      required: [title, description]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        affected_services:
+          type: array
+          items:
+            type: string
+          example: [metrics, gateway]
+    Incident:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - affected_services
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        affected_services:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [active, resolved]
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+    IncidentList:
+      type: object
+      required: [incidents]
+      properties:
+        incidents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Incident"
