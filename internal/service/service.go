@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,6 +14,12 @@ import (
 
 	"github.com/discordia-grupo01/metrics/internal/model"
 	"github.com/discordia-grupo01/metrics/internal/repository"
+)
+
+var (
+	ErrForbidden             = errors.New("forbidden")
+	ErrInvalidPeriod         = errors.New("invalid period")
+	ErrDependencyUnavailable = errors.New("authorization dependency unavailable")
 )
 
 type Authorizer interface {
@@ -49,7 +56,7 @@ func (s *Service) authorizeServer(ctx context.Context, serverID, userID, authHea
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("forbidden")
+		return ErrForbidden
 	}
 	return nil
 }
@@ -67,7 +74,7 @@ func ParsePeriod(values url.Values, now time.Time) (time.Time, time.Time, error)
 		}
 	}
 	if err != nil || !from.Before(to) || to.Sub(from) > 366*24*time.Hour {
-		return time.Time{}, time.Time{}, fmt.Errorf("from/to must be RFC3339, from before to, maximum 366 days")
+		return time.Time{}, time.Time{}, fmt.Errorf("%w: from/to must be RFC3339, from before to, maximum 366 days", ErrInvalidPeriod)
 	}
 	return from.UTC(), to.UTC(), nil
 }
@@ -116,20 +123,20 @@ func (a *HTTPAuthorizer) CanAdministerServer(ctx context.Context, serverID, user
 	}
 	response, err := a.client.Do(request)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: %v", ErrDependencyUnavailable, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusNotFound {
 		return false, nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return false, fmt.Errorf("servers authorization returned %s", response.Status)
+		return false, fmt.Errorf("%w: servers authorization returned %s", ErrDependencyUnavailable, response.Status)
 	}
 	var payload struct {
 		Permissions []string `json:"permissions"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: invalid authorization response: %v", ErrDependencyUnavailable, err)
 	}
 	for _, permission := range payload.Permissions {
 		if permission == "ADMINISTRATOR" {

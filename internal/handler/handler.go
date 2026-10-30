@@ -132,9 +132,16 @@ func (h *Handler) respondError(c *gin.Context, err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return true
 	}
-	if err.Error() == "forbidden" {
+	switch {
+	case errors.Is(err, service.ErrInvalidPeriod):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "administrator permission required"})
-	} else {
+	case errors.Is(err, service.ErrDependencyUnavailable):
+		c.JSON(http.StatusBadGateway, gin.H{"error": "authorization service unavailable"})
+	case errors.Is(err, repository.ErrIncidentNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 	return true

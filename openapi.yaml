@@ -77,7 +77,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GlobalSummary"
+                $ref: "#/components/schemas/Summary"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -120,6 +120,18 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: El usuario no tiene permisos de administración.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: No fue posible consultar la autorización en servers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: No fue posible consultar la autorización en servers.
           content:
             application/json:
               schema:
@@ -179,7 +191,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Summary"
+                $ref: "#/components/schemas/GlobalSummary"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -256,7 +268,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "500":
+        "404":
           description: El incidente no existe o ya estaba resuelto.
           content:
             application/json:

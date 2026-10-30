@@ -3,13 +3,15 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/discordia-grupo01/metrics/internal/model"
 	"github.com/google/uuid"
 )
+
+var ErrIncidentNotFound = errors.New("incident not found or already resolved")
 
 type Repository struct{ db *sql.DB }
 
@@ -120,7 +122,7 @@ func (r *Repository) ResolveIncident(ctx context.Context, id string) error {
 	}
 	n, err := result.RowsAffected()
 	if err == nil && n == 0 {
-		return fmt.Errorf("incident not found or already resolved")
+		return ErrIncidentNotFound
 	}
 	return err
 }

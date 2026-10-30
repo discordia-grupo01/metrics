@@ -159,6 +159,15 @@ reencolan.
 La entrega es eventualmente consistente: una métrica puede tardar en reflejar
 un evento hasta que RabbitMQ lo entregue y el consumidor lo persista.
 
+### Códigos de error
+
+- `400`: período o cuerpo inválido;
+- `401`: falta autenticación;
+- `403`: el usuario autenticado no tiene el permiso requerido;
+- `404`: el incidente no existe o ya fue resuelto;
+- `502`: el servicio `servers` no está disponible para autorizar una métrica;
+- `500`: error interno no clasificado.
+
 ## Persistencia y migraciones
 
 Las migraciones ordenadas están en [migrations](migrations). La migración
