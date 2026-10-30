@@ -85,6 +85,7 @@ func main() {
 type config struct {
 	environment, host, port, userIDHeader                                                     string
 	databaseHost, databasePort, databaseName, databaseUser, databasePassword, databaseSSLMode string
+	databaseURLOverride                                                                       string
 	rabbitURL, exchange, queue, staffUserIDs                                                  string
 }
 
@@ -95,12 +96,16 @@ func loadConfig() config {
 		databasePort: env("DATABASE_PORT", "5432"), databaseName: env("DATABASE_NAME", "discordia_metrics"),
 		databaseUser: env("DATABASE_USER", "discordia"), databasePassword: env("DATABASE_PASSWORD", "discordia"),
 		databaseSSLMode: env("DATABASE_SSLMODE", "disable"), rabbitURL: os.Getenv("RABBITMQ_URL"),
-		exchange: env("EVENTS_EXCHANGE", "discordia.events"), queue: env("EVENTS_QUEUE", "metrics"),
+		databaseURLOverride: os.Getenv("DATABASE_URL"),
+		exchange:            env("EVENTS_EXCHANGE", "discordia.events"), queue: env("EVENTS_QUEUE", "metrics"),
 		staffUserIDs: os.Getenv("STAFF_USER_IDS"),
 	}
 }
 
 func (c config) databaseURL() string {
+	if c.databaseURLOverride != "" {
+		return c.databaseURLOverride
+	}
 	return "postgres://" + url.QueryEscape(c.databaseUser) + ":" + url.QueryEscape(c.databasePassword) + "@" +
 		c.databaseHost + ":" + c.databasePort + "/" + c.databaseName + "?sslmode=" + url.QueryEscape(c.databaseSSLMode)
 }
