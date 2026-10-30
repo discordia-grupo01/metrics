@@ -46,6 +46,7 @@ Usar [.env.example](.env.example) como plantilla.
 | `DATABASE_USER` | `discordia` | Usuario de PostgreSQL. |
 | `DATABASE_PASSWORD` | `discordia` | Contraseña de PostgreSQL. En producción debe ser obligatoria y secreta. |
 | `DATABASE_SSLMODE` | `disable` | `disable` en local; usar `require` o el modo indicado por el proveedor en producción. |
+| `DATABASE_URL` | vacío | Cadena PostgreSQL completa. Si está definida, tiene prioridad sobre las variables `DATABASE_*`. |
 | `RABBITMQ_URL` | vacío | URL AMQP. Si está vacía, la API arranca pero no consume eventos. |
 | `EVENTS_EXCHANGE` | `discordia.events` | Exchange topic compartido por los servicios. |
 | `EVENTS_QUEUE` | `metrics` | Cola durable exclusiva de esta proyección. |
@@ -194,6 +195,68 @@ En PowerShell se puede definir la variable con:
 $env:DATABASE_URL = "postgres://discordia:discordia@localhost:5432/discordia_metrics?sslmode=disable"
 make migrate
 ```
+
+## Despliegue en Render
+
+El servicio puede configurarse en Render como un **Web Service** usando el
+`Dockerfile` de este directorio. Activar el deploy automático para la rama
+`main`; el workflow de GitHub Actions valida en cada pull request que la
+imagen compile y que el contenedor arranque junto con sus dependencias.
+
+Configurar estas variables en Render:
+
+| Variable | Valor recomendado |
+|---|---|
+| `ENVIRONMENT` | `production` |
+| `HOST` | `0.0.0.0` |
+| `PORT` | La variable `PORT` proporcionada por Render; si Render no la inyecta, usar `8080`. |
+| `DATABASE_HOST` | Host interno de PostgreSQL |
+| `DATABASE_PORT` | Puerto interno de PostgreSQL, normalmente `5432` |
+| `DATABASE_NAME` | `discordia_metrics` |
+| `DATABASE_USER` | Usuario de PostgreSQL |
+| `DATABASE_PASSWORD` | Secret de PostgreSQL |
+| `DATABASE_SSLMODE` | `require` (o el modo indicado por el proveedor) |
+| `RABBITMQ_URL` | URL AMQP del RabbitMQ desplegado; dejar vacía solo si no se consumirán eventos |
+| `EVENTS_EXCHANGE` | `discordia.events` |
+| `EVENTS_QUEUE` | `metrics` |
+| `STAFF_USER_IDS` | UUIDs de staff separados por comas |
+
+No es necesario configurar `JWT_SECRET`: la validación del JWT pertenece a
+Kong y metrics recibe la identidad ya validada. Tampoco configurar
+`USER_ID_HEADER` en producción, porque permite suplantar la identidad.
+
+Configurar `/readyz` como health check de Render. Antes del primer deploy y
+cada vez que cambie el esquema, ejecutar las migraciones contra la base de
+producción desde un entorno que tenga instalado `migrate`:
+
+```text
+migrate -path migrations -database "postgres://<usuario>:<password>@<host>:<puerto>/<base>?sslmode=require" up
+```
+
+La imagen actual contiene únicamente el binario de la API; por eso el comando
+anterior no está disponible dentro de ella. Render no obtiene automáticamente
+las migraciones desde `docker-compose.yml`, que es para desarrollo local y el
+smoke test del CI. Usar un job de migración separado o agregar explícitamente
+el CLI a una imagen de pre-deploy, manteniendo las variables de conexión como
+secrets.
+
+### Usar Supabase como PostgreSQL
+
+Para conectar `metrics` a la base PostgreSQL de Supabase, copiar desde
+Supabase Dashboard > Connect la cadena de conexión adecuada para el entorno de
+Render y guardarla en Render como `DATABASE_URL`. Usar el pooler recomendado
+por Supabase si el proveedor limita las conexiones directas. La cadena debe
+incluir usuario, contraseña, host, puerto, base y `sslmode=require`.
+
+En este servicio no es necesario configurar `SUPABASE_URL`,
+`SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` ni `SUPABASE_JWKS_URL`:
+`metrics` no llama a la API de Supabase ni valida tokens de Supabase. La
+identidad continúa siendo validada por Kong y la base se usa como PostgreSQL
+de la proyección de métricas.
+
+Para el workflow de pull requests no se deben agregar secretos de Supabase.
+El CI seguirá usando PostgreSQL efímero mediante Docker Compose, de modo que
+los PR no dependan de una base de producción.
 
 ## Desarrollo local
 

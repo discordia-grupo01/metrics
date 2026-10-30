@@ -34,3 +34,41 @@ jobs:
         run: go test ./... -cover
       - name: Build de imagen Docker
         run: docker build -t discordia-metrics:ci .
+      - name: Validar configuración de Docker Compose
+        run: |
+          cat > .env <<'EOF'
+          ENVIRONMENT=test
+          HOST=0.0.0.0
+          PORT=8080
+          DATABASE_HOST=db
+          DATABASE_PORT=5432
+          DATABASE_NAME=discordia_metrics
+          DATABASE_USER=discordia
+          DATABASE_PASSWORD=discordia
+          DATABASE_SSLMODE=disable
+          RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+          EVENTS_EXCHANGE=discordia.events
+          EVENTS_QUEUE=metrics
+          STAFF_USER_IDS=
+          EOF
+          docker compose config
+      - name: Smoke test del despliegue
+        run: |
+          set -e
+          trap 'docker compose down -v --remove-orphans' EXIT
+          docker compose up -d --build
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:8080/livez; then
+              echo
+              curl --fail --silent http://localhost:8080/readyz
+              echo
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs --no-color api migrations
+          exit 1
+      - name: Limpiar configuración de CI
+        if: always()
+        run: rm -f .env
