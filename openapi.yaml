@@ -88,12 +88,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: No fue posible consultar la autorización en servers.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
   /v1/servers/{serverId}/metrics/growth:
     get:
       tags: [server-metrics]
@@ -120,18 +114,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: El usuario no tiene permisos de administración.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: No fue posible consultar la autorización en servers.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: No fue posible consultar la autorización en servers.
           content:
             application/json:
               schema:

@@ -22,8 +22,8 @@ administradores de servidores y staff de la plataforma.
 - Eventos: RabbitMQ, exchange `discordia.events`.
 - Autenticación externa: Kong valida el JWT; el servicio obtiene el usuario del
   claim `sub`.
-- Autorización de servidor: consulta HTTP al servicio `servers` (proyección
-  local planificada en la siguiente fase).
+- Autorización de servidor: proyección local alimentada por eventos de
+  `servers`; no realiza consultas HTTP request-by-request.
 - Imagen: Docker multi-stage basada en `golang:1.22-alpine`.
 
 El servicio es dueño de su proyección y de los incidentes. No accede
@@ -49,7 +49,6 @@ Usar [.env.example](.env.example) como plantilla.
 | `RABBITMQ_URL` | vacío | URL AMQP. Si está vacía, la API arranca pero no consume eventos. |
 | `EVENTS_EXCHANGE` | `discordia.events` | Exchange topic compartido por los servicios. |
 | `EVENTS_QUEUE` | `metrics` | Cola durable exclusiva de esta proyección. |
-| `SERVERS_URL` | `http://servers:8080` | URL interna de `servers` para validar permisos. |
 | `STAFF_USER_IDS` | vacío | UUIDs separados por coma autorizados para métricas globales e incidentes. |
 | `USER_ID_HEADER` | vacío | Header de identidad para desarrollo local. No configurarlo en producción. |
 
@@ -59,14 +58,11 @@ En el flujo normal, Kong valida la firma y expiración del JWT y enruta la
 solicitud al servicio. Metrics lee el claim `sub` del bearer token. No confía
 en un `user_id` enviado como parámetro o en el cuerpo.
 
-Para métricas de un servidor, metrics consulta:
-
-```text
-GET {SERVERS_URL}/v1/servers/{serverId}/members/{userId}/permissions
-```
-
-La solicitud se permite únicamente si la respuesta contiene el permiso
-`ADMINISTRATOR`. La consulta conserva el header `Authorization` original.
+Para métricas de un servidor, metrics verifica la proyección local de
+servidores, propietario, roles y roles asignados. Se permite únicamente al
+propietario o a un usuario con un rol que tenga `ADMINISTRATOR`. Si la
+proyección aún no conoce el servidor o está atrasada, se deniega el acceso de
+forma segura; no se consulta a `servers` como fallback.
 
 Las métricas globales y la gestión de incidentes requieren que el `sub` esté
 incluido en `STAFF_USER_IDS`. Esta configuración es una medida operativa
@@ -148,6 +144,11 @@ Metrics declara la cola `EVENTS_QUEUE` y la vincula al exchange
 | `servers.member_joined` | Registra un alta de miembro. |
 | `servers.member_left` | Registra una baja de miembro. |
 | `servers.server_updated` | Registra la creación/actualización publicada por servers. |
+| `servers.server_deleted` | Marca el servidor como eliminado en la proyección de autorización. |
+| `servers.role_updated` | Actualiza si un rol contiene `ADMINISTRATOR`. |
+| `servers.role_deleted` | Marca un rol como eliminado. |
+| `servers.member_roles_updated` | Reemplaza los roles asignados a un usuario. |
+| `servers.owner_updated` | Actualiza el propietario del servidor. |
 | `messaging.message_created` | Registra un mensaje sin almacenar su texto. |
 
 Cada evento debe tener un `event_id` UUID y `occurred_at`. `event_id` es clave
@@ -163,9 +164,9 @@ un evento hasta que RabbitMQ lo entregue y el consumidor lo persista.
 
 - `400`: período o cuerpo inválido;
 - `401`: falta autenticación;
-- `403`: el usuario autenticado no tiene el permiso requerido;
+- `403`: el usuario autenticado no tiene el permiso requerido, o la
+  proyección local todavía no conoce el servidor;
 - `404`: el incidente no existe o ya fue resuelto;
-- `502`: el servicio `servers` no está disponible para autorizar una métrica;
 - `500`: error interno no clasificado.
 
 ## Persistencia y migraciones
@@ -175,7 +176,9 @@ inicial crea:
 
 - `metric_events`, la proyección de actividad;
 - índices por servidor, tipo y fecha;
-- `incidents`, el estado de incidentes de plataforma.
+- `incidents`, el estado de incidentes de plataforma;
+- `metric_servers`, `metric_roles`, `metric_member_roles` y `metric_owners`,
+  la proyección de autorización local.
 
 En desarrollo standalone, Docker Compose ejecuta el servicio `migrations`
 antes de iniciar `api`. Para ejecutar una migración manual:

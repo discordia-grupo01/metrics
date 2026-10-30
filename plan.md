@@ -187,13 +187,12 @@ describan los cambios relevantes de:
    - tests de contrato e integración.
 4. Crear tablas de proyección locales, sin claves foráneas hacia la base de
    `servers`.
-5. Reemplazar `HTTPAuthorizer` por un `ProjectionAuthorizer` que consulte la
-   proyección local.
-6. Definir el comportamiento cuando la proyección todavía está atrasada:
-   responder `403` de forma segura, o un error explícito de consistencia
-   temporal, pero nunca permitir por falta de datos.
-7. Eliminar `SERVERS_URL` y la propagación del bearer token cuando ya no haya
-   endpoints síncronos de autorización.
+5. ✅ Reemplazar `HTTPAuthorizer` por un `ProjectionAuthorizer` que consulte
+   la proyección local.
+6. ✅ Definir el comportamiento cuando la proyección todavía está atrasada:
+   responder `403` de forma segura, sin permitir por falta de datos.
+7. ✅ Eliminar `SERVERS_URL` y la propagación del bearer token; la autorización
+   ya no tiene endpoints síncronos.
 8. Agregar métricas operativas del consumidor:
    - edad del evento más antiguo pendiente;
    - cantidad de eventos procesados;
@@ -341,8 +340,8 @@ Revisar que:
 
 ### 4.3 Migración de autorización síncrona a asíncrona
 
-La autorización de servidor debe dejar de depender de una consulta HTTP
-request-by-request a `servers`.
+La autorización de servidor ya no depende de una consulta HTTP request-by-request
+a `servers`; usa la proyección local alimentada por RabbitMQ.
 
 Durante la migración:
 
@@ -350,8 +349,7 @@ Durante la migración:
   explícita, si se necesita comparar ambas implementaciones;
 - no usar el fallback síncrono como polling;
 - registrar discrepancias entre la autorización HTTP y la proyección local;
-- retirar `HTTPAuthorizer`, `SERVERS_URL` y el forwarding del token cuando la
-  proyección tenga cobertura suficiente;
+- ✅ retirar `HTTPAuthorizer`, `SERVERS_URL` y el forwarding del token;
 - probar el comportamiento con `servers` caído y con RabbitMQ temporalmente
   atrasado.
 
@@ -545,7 +543,6 @@ No agregar deploy productivo hasta definir:
 - variables secretas;
 - host de PostgreSQL;
 - host de RabbitMQ;
-- `SERVERS_URL`;
 - `STAFF_USER_IDS`;
 - `METRICS_UPSTREAM_URL`;
 - estrategia de migraciones.
@@ -583,4 +580,4 @@ No agregar deploy productivo hasta definir:
 
 Podés copiar el siguiente texto en una conversación futura:
 
-> Estoy trabajando en `C:\Facultad\IS2\Repos_Discordia\metrics`, un módulo Go 1.22 independiente. El servicio implementa métricas por servidor, métricas globales, crecimiento diario, exportación CSV e incidentes de plataforma. Usa Gin, PostgreSQL, RabbitMQ y Docker. Consume `servers.member_joined`, `servers.member_left`, `servers.server_updated` y `messaging.message_created` desde el exchange `discordia.events`, guardando una proyección idempotente por `event_id`. La autorización de métricas de servidor consulta `servers` y requiere `ADMINISTRATOR`; métricas globales e incidentes usan `STAFF_USER_IDS`. Kong está configurado en `gateway/kong/kong.yml` y `kong.yml.template`; el stack integrado está en `infrastructure/docker-compose.yml`. El README y `openapi.yaml` ya están documentados. Validaciones realizadas: `go test ./...`, `go vet ./...`, `go build ./...`, `go mod verify`, Docker build, Compose config y validación YAML de OpenAPI. Próximas tareas prioritarias: revisar la semántica de miembros activos y métricas globales, separar `GlobalSummary` de `ServerSummary`, agregar tests de handlers/repositorio/eventos, alinear códigos HTTP reales con OpenAPI y probar el flujo integrado RabbitMQ/PostgreSQL/Docker/Kong. No modificar archivos `.env` ni crear commits automáticamente sin solicitarlo.
+> Estoy trabajando en `C:\Facultad\IS2\Repos_Discordia\metrics`, un módulo Go 1.22 independiente. El servicio implementa métricas por servidor, métricas globales, crecimiento diario, exportación CSV e incidentes de plataforma. Usa Gin, PostgreSQL, RabbitMQ y Docker. Consume eventos de membresía, servidores, roles, asignaciones de roles, ownership y mensajería desde el exchange `discordia.events`, guardando una proyección idempotente por `event_id`. La autorización de métricas de servidor consulta la proyección local y requiere `ADMINISTRATOR` o ownership; no consulta `servers` de forma síncrona. Métricas globales e incidentes usan `STAFF_USER_IDS`. Kong está configurado en `gateway/kong/kong.yml` y `kong.yml.template`; el stack integrado está en `infrastructure/docker-compose.yml`. El README y `openapi.yaml` ya están documentados. Validaciones realizadas: `go test ./...`, `go vet ./...`, `go build ./...`, gofmt y diff check. Próximas tareas prioritarias: agregar tests de repositorio, probar migraciones y validar el flujo integrado RabbitMQ/PostgreSQL/Docker/Kong. No modificar archivos `.env` ni crear commits automáticamente sin solicitarlo.

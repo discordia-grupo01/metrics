@@ -28,7 +28,7 @@ func (h *Handler) ServerSummary(c *gin.Context) {
 	if !ok {
 		return
 	}
-	summary, err := h.service.ServerSummary(c, c.Param("serverId"), middleware.UserID(c), c.GetHeader("Authorization"), from, to)
+	summary, err := h.service.ServerSummary(c, c.Param("serverId"), middleware.UserID(c), from, to)
 	if h.respondError(c, err) {
 		return
 	}
@@ -40,7 +40,7 @@ func (h *Handler) ServerGrowth(c *gin.Context) {
 	if !ok {
 		return
 	}
-	points, err := h.service.ServerGrowth(c, c.Param("serverId"), middleware.UserID(c), c.GetHeader("Authorization"), from, to)
+	points, err := h.service.ServerGrowth(c, c.Param("serverId"), middleware.UserID(c), from, to)
 	if h.respondError(c, err) {
 		return
 	}
@@ -52,7 +52,7 @@ func (h *Handler) Export(c *gin.Context) {
 	if !ok {
 		return
 	}
-	summary, err := h.service.ServerSummary(c, c.Param("serverId"), middleware.UserID(c), c.GetHeader("Authorization"), from, to)
+	summary, err := h.service.ServerSummary(c, c.Param("serverId"), middleware.UserID(c), from, to)
 	if h.respondError(c, err) {
 		return
 	}
@@ -137,8 +137,6 @@ func (h *Handler) respondError(c *gin.Context, err error) bool {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "administrator permission required"})
-	case errors.Is(err, service.ErrDependencyUnavailable):
-		c.JSON(http.StatusBadGateway, gin.H{"error": "authorization service unavailable"})
 	case errors.Is(err, repository.ErrIncidentNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	default:

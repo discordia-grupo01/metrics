@@ -17,10 +17,121 @@ type Repository struct{ db *sql.DB }
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
 
-func (r *Repository) RecordEvent(ctx context.Context, id uuid.UUID, eventType string, serverID, userID *uuid.UUID, occurredAt time.Time) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO metric_events (event_id,event_type,server_id,user_id,occurred_at)
-		VALUES ($1,$2,$3,$4,$5) ON CONFLICT (event_id) DO NOTHING`, id, eventType, serverID, userID, occurredAt)
-	return err
+type Event struct {
+	ID          uuid.UUID
+	Type        string
+	ServerID    *uuid.UUID
+	UserID      *uuid.UUID
+	RoleID      *uuid.UUID
+	RoleIDs     []uuid.UUID
+	Permissions []string
+	IsEveryone  bool
+	OwnerID     *uuid.UUID
+	OccurredAt  time.Time
+}
+
+func (r *Repository) ApplyEvent(ctx context.Context, event Event) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `INSERT INTO metric_events (event_id,event_type,server_id,user_id,occurred_at)
+		VALUES ($1,$2,$3,$4,$5) ON CONFLICT (event_id) DO NOTHING`,
+		event.ID, event.Type, event.ServerID, event.UserID, event.OccurredAt)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return tx.Commit()
+	}
+
+	switch event.Type {
+	case "server_updated":
+		_, err = tx.ExecContext(ctx, `INSERT INTO metric_servers (server_id, occurred_at, deleted_at)
+			VALUES ($1,$2,NULL)
+			ON CONFLICT (server_id) DO UPDATE SET occurred_at=EXCLUDED.occurred_at, deleted_at=NULL
+			WHERE metric_servers.occurred_at <= EXCLUDED.occurred_at`, event.ServerID, event.OccurredAt)
+	case "server_deleted":
+		_, err = tx.ExecContext(ctx, `INSERT INTO metric_servers (server_id, occurred_at, deleted_at)
+			VALUES ($1,$2,$2)
+			ON CONFLICT (server_id) DO UPDATE SET occurred_at=EXCLUDED.occurred_at, deleted_at=EXCLUDED.deleted_at
+			WHERE metric_servers.occurred_at <= EXCLUDED.occurred_at`, event.ServerID, event.OccurredAt)
+	case "role_updated":
+		_, err = tx.ExecContext(ctx, `INSERT INTO metric_roles
+			(server_id, role_id, is_admin, is_everyone, occurred_at, deleted)
+			VALUES ($1,$2,$3,$4,$5,false)
+			ON CONFLICT (server_id, role_id) DO UPDATE SET
+				is_admin=EXCLUDED.is_admin, is_everyone=EXCLUDED.is_everyone,
+				occurred_at=EXCLUDED.occurred_at, deleted=false
+			WHERE metric_roles.occurred_at <= EXCLUDED.occurred_at`,
+			event.ServerID, event.RoleID, contains(event.Permissions, "ADMINISTRATOR"),
+			event.IsEveryone, event.OccurredAt)
+	case "role_deleted":
+		_, err = tx.ExecContext(ctx, `INSERT INTO metric_roles
+			(server_id, role_id, is_admin, is_everyone, occurred_at, deleted)
+			VALUES ($1,$2,false,false,$3,true)
+			ON CONFLICT (server_id, role_id) DO UPDATE SET occurred_at=EXCLUDED.occurred_at, deleted=true
+			WHERE metric_roles.occurred_at <= EXCLUDED.occurred_at`,
+			event.ServerID, event.RoleID, event.OccurredAt)
+	case "member_roles_updated":
+		_, err = tx.ExecContext(ctx, `INSERT INTO metric_member_roles
+			(server_id, user_id, role_ids, occurred_at)
+			VALUES ($1,$2,$3,$4)
+			ON CONFLICT (server_id, user_id) DO UPDATE SET role_ids=EXCLUDED.role_ids,
+				occurred_at=EXCLUDED.occurred_at
+			WHERE metric_member_roles.occurred_at <= EXCLUDED.occurred_at`,
+			event.ServerID, event.UserID, uuidStrings(event.RoleIDs), event.OccurredAt)
+	case "owner_updated":
+		_, err = tx.ExecContext(ctx, `INSERT INTO metric_owners (server_id, owner_id, occurred_at)
+			VALUES ($1,$2,$3)
+			ON CONFLICT (server_id) DO UPDATE SET owner_id=EXCLUDED.owner_id, occurred_at=EXCLUDED.occurred_at
+			WHERE metric_owners.occurred_at <= EXCLUDED.occurred_at`,
+			event.ServerID, event.OwnerID, event.OccurredAt)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {
+	var allowed bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1
+		FROM metric_servers s
+		WHERE s.server_id = $1 AND s.deleted_at IS NULL
+		AND (
+			EXISTS (SELECT 1 FROM metric_owners o WHERE o.server_id = s.server_id AND o.owner_id = $2)
+			OR EXISTS (
+				SELECT 1
+				FROM metric_member_roles mr
+				JOIN LATERAL unnest(mr.role_ids) assigned(role_id) ON true
+				JOIN metric_roles r ON r.server_id = mr.server_id AND r.role_id = assigned.role_id
+				WHERE mr.server_id = s.server_id AND mr.user_id = $2
+					AND r.is_admin AND NOT r.deleted
+			)
+		)
+	)`, serverID, userID).Scan(&allowed)
+	return allowed, err
+}
+
+func contains(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func uuidStrings(values []uuid.UUID) []string {
+	result := make([]string, len(values))
+	for i, value := range values {
+		result[i] = value.String()
+	}
+	return result
 }
 
 func (r *Repository) Summary(ctx context.Context, serverID string, from, to time.Time) (model.ServerSummary, error) {

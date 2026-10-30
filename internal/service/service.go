@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,13 +16,12 @@ import (
 )
 
 var (
-	ErrForbidden             = errors.New("forbidden")
-	ErrInvalidPeriod         = errors.New("invalid period")
-	ErrDependencyUnavailable = errors.New("authorization dependency unavailable")
+	ErrForbidden     = errors.New("forbidden")
+	ErrInvalidPeriod = errors.New("invalid period")
 )
 
 type Authorizer interface {
-	CanAdministerServer(context.Context, string, string, string) (bool, error)
+	CanAdministerServer(context.Context, string, string) (bool, error)
 	IsStaff(string) bool
 }
 
@@ -36,22 +34,22 @@ func New(repo *repository.Repository, authorizer Authorizer) *Service {
 	return &Service{repo: repo, authorizer: authorizer}
 }
 
-func (s *Service) ServerSummary(ctx context.Context, serverID, userID, authHeader string, from, to time.Time) (model.ServerSummary, error) {
-	if err := s.authorizeServer(ctx, serverID, userID, authHeader); err != nil {
+func (s *Service) ServerSummary(ctx context.Context, serverID, userID string, from, to time.Time) (model.ServerSummary, error) {
+	if err := s.authorizeServer(ctx, serverID, userID); err != nil {
 		return model.ServerSummary{}, err
 	}
 	return s.repo.Summary(ctx, serverID, from, to)
 }
 
-func (s *Service) ServerGrowth(ctx context.Context, serverID, userID, authHeader string, from, to time.Time) ([]model.GrowthPoint, error) {
-	if err := s.authorizeServer(ctx, serverID, userID, authHeader); err != nil {
+func (s *Service) ServerGrowth(ctx context.Context, serverID, userID string, from, to time.Time) ([]model.GrowthPoint, error) {
+	if err := s.authorizeServer(ctx, serverID, userID); err != nil {
 		return nil, err
 	}
 	return s.repo.Growth(ctx, serverID, from, to)
 }
 
-func (s *Service) authorizeServer(ctx context.Context, serverID, userID, authHeader string) error {
-	ok, err := s.authorizer.CanAdministerServer(ctx, serverID, userID, authHeader)
+func (s *Service) authorizeServer(ctx context.Context, serverID, userID string) error {
+	ok, err := s.authorizer.CanAdministerServer(ctx, serverID, userID)
 	if err != nil {
 		return err
 	}
@@ -94,54 +92,23 @@ func WriteCSV(w http.ResponseWriter, summary model.ServerSummary) error {
 	return writer.Error()
 }
 
-type HTTPAuthorizer struct {
-	serversURL string
-	client     *http.Client
-	staff      map[string]struct{}
+type ProjectionAuthorizer struct {
+	repo  *repository.Repository
+	staff map[string]struct{}
 }
 
-func NewHTTPAuthorizer(serversURL string, staffIDs []string) *HTTPAuthorizer {
+func NewProjectionAuthorizer(repo *repository.Repository, staffIDs []string) *ProjectionAuthorizer {
 	staff := make(map[string]struct{}, len(staffIDs))
 	for _, id := range staffIDs {
 		if value := strings.TrimSpace(id); value != "" {
 			staff[value] = struct{}{}
 		}
 	}
-	return &HTTPAuthorizer{serversURL: strings.TrimRight(serversURL, "/"), client: &http.Client{Timeout: 5 * time.Second}, staff: staff}
+	return &ProjectionAuthorizer{repo: repo, staff: staff}
 }
 
-func (a *HTTPAuthorizer) IsStaff(userID string) bool { _, ok := a.staff[userID]; return ok }
+func (a *ProjectionAuthorizer) IsStaff(userID string) bool { _, ok := a.staff[userID]; return ok }
 
-func (a *HTTPAuthorizer) CanAdministerServer(ctx context.Context, serverID, userID, authHeader string) (bool, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("%s/v1/servers/%s/members/%s/permissions", a.serversURL, url.PathEscape(serverID), url.PathEscape(userID)), nil)
-	if err != nil {
-		return false, err
-	}
-	if authHeader != "" {
-		request.Header.Set("Authorization", authHeader)
-	}
-	response, err := a.client.Do(request)
-	if err != nil {
-		return false, fmt.Errorf("%w: %v", ErrDependencyUnavailable, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusNotFound {
-		return false, nil
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return false, fmt.Errorf("%w: servers authorization returned %s", ErrDependencyUnavailable, response.Status)
-	}
-	var payload struct {
-		Permissions []string `json:"permissions"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return false, fmt.Errorf("%w: invalid authorization response: %v", ErrDependencyUnavailable, err)
-	}
-	for _, permission := range payload.Permissions {
-		if permission == "ADMINISTRATOR" {
-			return true, nil
-		}
-	}
-	return false, nil
+func (a *ProjectionAuthorizer) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {
+	return a.repo.CanAdministerServer(ctx, serverID, userID)
 }

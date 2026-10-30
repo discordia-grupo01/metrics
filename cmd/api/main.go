@@ -36,7 +36,7 @@ func main() {
 	}
 
 	repo := repository.New(db)
-	authorizer := service.NewHTTPAuthorizer(cfg.serversURL, strings.Split(cfg.staffUserIDs, ","))
+	authorizer := service.NewProjectionAuthorizer(repo, strings.Split(cfg.staffUserIDs, ","))
 	svc := service.New(repo, authorizer)
 	h := handler.New(svc, repo)
 
@@ -85,7 +85,7 @@ func main() {
 type config struct {
 	environment, host, port, userIDHeader                                                     string
 	databaseHost, databasePort, databaseName, databaseUser, databasePassword, databaseSSLMode string
-	rabbitURL, exchange, queue, serversURL, staffUserIDs                                      string
+	rabbitURL, exchange, queue, staffUserIDs                                                  string
 }
 
 func loadConfig() config {
@@ -96,7 +96,7 @@ func loadConfig() config {
 		databaseUser: env("DATABASE_USER", "discordia"), databasePassword: env("DATABASE_PASSWORD", "discordia"),
 		databaseSSLMode: env("DATABASE_SSLMODE", "disable"), rabbitURL: os.Getenv("RABBITMQ_URL"),
 		exchange: env("EVENTS_EXCHANGE", "discordia.events"), queue: env("EVENTS_QUEUE", "metrics"),
-		serversURL: env("SERVERS_URL", "http://servers:8080"), staffUserIDs: os.Getenv("STAFF_USER_IDS"),
+		staffUserIDs: os.Getenv("STAFF_USER_IDS"),
 	}
 }
 

@@ -26,3 +26,15 @@ func TestHandleRejectsMalformedEvents(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleRejectsInvalidAuthorizationEvent(t *testing.T) {
+	err := handle(context.Background(), nil, "servers.role_updated", []byte(`{
+		"event_id":"00000000-0000-0000-0000-000000000001",
+		"occurred_at":"2026-10-30T12:00:00Z",
+		"server_id":"00000000-0000-0000-0000-000000000002",
+		"role_id":"not-a-uuid"
+	}`))
+	if err == nil || !isInvalid(err) {
+		t.Fatalf("error = %v, want invalid event", err)
+	}
+}

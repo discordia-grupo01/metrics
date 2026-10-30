@@ -19,7 +19,6 @@ func TestRespondErrorMapsKnownErrors(t *testing.T) {
 	}{
 		{name: "invalid period", err: service.ErrInvalidPeriod, wantStatus: 400},
 		{name: "forbidden", err: service.ErrForbidden, wantStatus: 403},
-		{name: "dependency unavailable", err: service.ErrDependencyUnavailable, wantStatus: 502},
 		{name: "incident not found", err: repository.ErrIncidentNotFound, wantStatus: 404},
 		{name: "internal error", err: errors.New("database failure"), wantStatus: 500},
 	}
