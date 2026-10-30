@@ -22,7 +22,8 @@ administradores de servidores y staff de la plataforma.
 - Eventos: RabbitMQ, exchange `discordia.events`.
 - Autenticación externa: Kong valida el JWT; el servicio obtiene el usuario del
   claim `sub`.
-- Autorización de servidor: consulta HTTP al servicio `servers`.
+- Autorización de servidor: consulta HTTP al servicio `servers` (proyección
+  local planificada en la siguiente fase).
 - Imagen: Docker multi-stage basada en `golang:1.22-alpine`.
 
 El servicio es dueño de su proyección y de los incidentes. No accede
@@ -92,10 +93,11 @@ Los parámetros `from` y `to` son timestamps RFC3339. Si se omiten, se usa el
 período de los últimos 30 días. El período máximo permitido es de 366 días y
 `from` debe ser anterior a `to`.
 
-El resumen incluye:
+El resumen de servidor incluye:
 
 - `active_members`: usuarios distintos que generaron actividad registrada en el
-  período;
+  período. Se consideran actividad los mensajes y los eventos de alta o baja
+  de membresía;
 - `messages_sent`: mensajes registrados por `messaging.message_created`;
 - `new_members`: altas registradas por `servers.member_joined`;
 - `has_activity`: indica si alguna de esas métricas es distinta de cero.
@@ -116,7 +118,14 @@ from,to,active_members,messages_sent,new_members
 ### Métricas globales
 
 `GET /v1/metrics/global` requiere staff y devuelve un resumen agregado de todos
-los servidores dentro del período solicitado.
+los servidores dentro del período solicitado. Su respuesta es distinta del
+resumen de servidor e incluye:
+
+- `active_users`: usuarios distintos que generaron mensajes o cambios de
+  membresía;
+- `servers_created`: servidores cuyo primer evento `server_updated` ocurrió en
+  el período;
+- `messages_sent`: mensajes registrados por `messaging.message_created`.
 
 ### Estado e incidentes
 

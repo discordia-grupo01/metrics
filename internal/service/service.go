@@ -29,9 +29,9 @@ func New(repo *repository.Repository, authorizer Authorizer) *Service {
 	return &Service{repo: repo, authorizer: authorizer}
 }
 
-func (s *Service) ServerSummary(ctx context.Context, serverID, userID, authHeader string, from, to time.Time) (model.Summary, error) {
+func (s *Service) ServerSummary(ctx context.Context, serverID, userID, authHeader string, from, to time.Time) (model.ServerSummary, error) {
 	if err := s.authorizeServer(ctx, serverID, userID, authHeader); err != nil {
-		return model.Summary{}, err
+		return model.ServerSummary{}, err
 	}
 	return s.repo.Summary(ctx, serverID, from, to)
 }
@@ -72,7 +72,7 @@ func ParsePeriod(values url.Values, now time.Time) (time.Time, time.Time, error)
 	return from.UTC(), to.UTC(), nil
 }
 
-func WriteCSV(w http.ResponseWriter, summary model.Summary) error {
+func WriteCSV(w http.ResponseWriter, summary model.ServerSummary) error {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="metrics.csv"`)
 	writer := csv.NewWriter(w)

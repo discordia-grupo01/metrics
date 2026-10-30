@@ -2,13 +2,22 @@ package model
 
 import "time"
 
-type Summary struct {
+type ServerSummary struct {
 	From          time.Time `json:"from"`
 	To            time.Time `json:"to"`
 	ActiveMembers int       `json:"active_members"`
 	MessagesSent  int       `json:"messages_sent"`
 	NewMembers    int       `json:"new_members"`
 	HasActivity   bool      `json:"has_activity"`
+}
+
+type GlobalSummary struct {
+	From           time.Time `json:"from"`
+	To             time.Time `json:"to"`
+	ActiveUsers    int       `json:"active_users"`
+	ServersCreated int       `json:"servers_created"`
+	MessagesSent   int       `json:"messages_sent"`
+	HasActivity    bool      `json:"has_activity"`
 }
 
 type GrowthPoint struct {

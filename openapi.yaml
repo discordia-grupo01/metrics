@@ -77,7 +77,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Summary"
+                $ref: "#/components/schemas/GlobalSummary"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -353,6 +353,36 @@ components:
           type: integer
           minimum: 0
         new_members:
+          type: integer
+          minimum: 0
+        has_activity:
+          type: boolean
+          description: False cuando todos los contadores del período son cero.
+    GlobalSummary:
+      type: object
+      required:
+        - from
+        - to
+        - active_users
+        - servers_created
+        - messages_sent
+        - has_activity
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        active_users:
+          type: integer
+          minimum: 0
+          description: Usuarios distintos con mensajes o cambios de membresía en el período.
+        servers_created:
+          type: integer
+          minimum: 0
+          description: Servidores cuyo primer evento server_updated ocurrió en el período.
+        messages_sent:
           type: integer
           minimum: 0
         has_activity:

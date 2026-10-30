@@ -21,11 +21,11 @@ func (r *Repository) RecordEvent(ctx context.Context, id uuid.UUID, eventType st
 	return err
 }
 
-func (r *Repository) Summary(ctx context.Context, serverID string, from, to time.Time) (model.Summary, error) {
-	var s model.Summary
+func (r *Repository) Summary(ctx context.Context, serverID string, from, to time.Time) (model.ServerSummary, error) {
+	var s model.ServerSummary
 	s.From, s.To = from, to
 	err := r.db.QueryRowContext(ctx, `SELECT
-		COUNT(DISTINCT user_id) FILTER (WHERE event_type = 'message'),
+		COUNT(DISTINCT user_id) FILTER (WHERE event_type IN ('message','member_joined','member_left')),
 		COUNT(*) FILTER (WHERE event_type = 'message'),
 		COUNT(*) FILTER (WHERE event_type = 'member_joined')
 		FROM metric_events WHERE server_id = $1 AND occurred_at >= $2 AND occurred_at < $3`,
@@ -67,16 +67,17 @@ func (r *Repository) Growth(ctx context.Context, serverID string, from, to time.
 	return result, rows.Err()
 }
 
-func (r *Repository) Global(ctx context.Context, from, to time.Time) (model.Summary, error) {
-	var s model.Summary
+func (r *Repository) Global(ctx context.Context, from, to time.Time) (model.GlobalSummary, error) {
+	var s model.GlobalSummary
 	s.From, s.To = from, to
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT user_id) FILTER (WHERE event_type IN ('message','member_joined')),
-		COUNT(*) FILTER (WHERE event_type = 'message'), COUNT(DISTINCT server_id) FILTER (WHERE event_type = 'server_updated'
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT user_id) FILTER (WHERE event_type IN ('message','member_joined','member_left')),
+		COUNT(*) FILTER (WHERE event_type = 'message'),
+		COUNT(DISTINCT server_id) FILTER (WHERE event_type = 'server_updated'
 			AND NOT EXISTS (SELECT 1 FROM metric_events old WHERE old.server_id = metric_events.server_id
 				AND old.event_type = 'server_updated' AND old.occurred_at < metric_events.occurred_at))
 		FROM metric_events WHERE occurred_at >= $1 AND occurred_at < $2`, from, to).
-		Scan(&s.ActiveMembers, &s.MessagesSent, &s.NewMembers)
-	s.HasActivity = s.ActiveMembers > 0 || s.MessagesSent > 0 || s.NewMembers > 0
+		Scan(&s.ActiveUsers, &s.MessagesSent, &s.ServersCreated)
+	s.HasActivity = s.ActiveUsers > 0 || s.MessagesSent > 0 || s.ServersCreated > 0
 	return s, err
 }
 
