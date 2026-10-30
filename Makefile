@@ -10,4 +10,4 @@ build:
 	go build -o bin/api ./cmd/api
 
 migrate:
-	@echo "TODO: correr migraciones (ej. golang-migrate)"
+	migrate -path migrations -database "$$DATABASE_URL" up
