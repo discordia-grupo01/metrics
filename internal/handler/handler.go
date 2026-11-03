@@ -72,7 +72,7 @@ func (h *Handler) Global(c *gin.Context) {
 	if !ok {
 		return
 	}
-	summary, err := h.repo.Global(c, from, to)
+	summary, err := h.service.Global(c, from, to)
 	if h.respondError(c, err) {
 		return
 	}

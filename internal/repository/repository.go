@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -192,6 +193,40 @@ func (r *Repository) Global(ctx context.Context, from, to time.Time) (model.Glob
 		Scan(&s.ActiveUsers, &s.MessagesSent, &s.ServersCreated)
 	s.HasActivity = s.ActiveUsers > 0 || s.MessagesSent > 0 || s.ServersCreated > 0
 	return s, err
+}
+
+func (r *Repository) GlobalSeries(ctx context.Context, from, to time.Time, step time.Duration) ([]model.GlobalPoint, error) {
+	rows, err := r.db.QueryContext(ctx, `WITH buckets AS (
+		SELECT start, LEAST(start + $3::interval, $2::timestamptz) AS finish
+		FROM generate_series($1::timestamptz, $2::timestamptz - interval '1 microsecond', $3::interval) AS start
+	)
+	SELECT b.start,
+		COUNT(DISTINCT e.user_id) FILTER (WHERE e.event_type IN ('message','member_joined','member_left')),
+		COUNT(*) FILTER (WHERE e.event_type = 'message'),
+		COUNT(DISTINCT e.server_id) FILTER (WHERE e.event_type = 'server_updated'
+			AND NOT EXISTS (SELECT 1 FROM metric_events old WHERE old.server_id = e.server_id
+				AND old.event_type = 'server_updated' AND old.occurred_at < e.occurred_at))
+	FROM buckets b
+	LEFT JOIN metric_events e ON e.occurred_at >= b.start AND e.occurred_at < b.finish
+	GROUP BY b.start ORDER BY b.start`, from, to, intervalLiteral(step))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]model.GlobalPoint, 0)
+	for rows.Next() {
+		var p model.GlobalPoint
+		if err := rows.Scan(&p.Start, &p.ActiveUsers, &p.MessagesSent, &p.ServersCreated); err != nil {
+			return nil, err
+		}
+		p.Start = p.Start.UTC()
+		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
+func intervalLiteral(step time.Duration) string {
+	return strconv.FormatInt(int64(step/time.Second), 10) + " seconds"
 }
 
 func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.Incident, error) {

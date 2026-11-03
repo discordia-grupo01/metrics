@@ -56,6 +56,27 @@ func (s *Service) ServerGrowth(ctx context.Context, serverID, userID string, fro
 	return s.repo.Growth(ctx, serverID, from, to)
 }
 
+func (s *Service) Global(ctx context.Context, from, to time.Time) (model.GlobalSummary, error) {
+	summary, err := s.repo.Global(ctx, from, to)
+	if err != nil {
+		return model.GlobalSummary{}, err
+	}
+	granularity, step := GranularityFor(from, to)
+	series, err := s.repo.GlobalSeries(ctx, from, to, step)
+	if err != nil {
+		return model.GlobalSummary{}, err
+	}
+	summary.Granularity, summary.Series = granularity, series
+	return summary, nil
+}
+
+func GranularityFor(from, to time.Time) (string, time.Duration) {
+	if to.Sub(from) <= 24*time.Hour {
+		return model.GranularityHour, time.Hour
+	}
+	return model.GranularityDay, 24 * time.Hour
+}
+
 func (s *Service) authorizeServer(ctx context.Context, serverID, userID string) error {
 	ok, err := s.authorizer.CanAdministerServer(ctx, serverID, userID)
 	if err != nil {
