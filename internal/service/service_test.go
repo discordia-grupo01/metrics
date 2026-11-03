@@ -32,6 +32,15 @@ func TestParsePeriodRejectsInvalidOrTooLongRanges(t *testing.T) {
 	}
 }
 
+func TestValidateIDRejectsMalformedUUID(t *testing.T) {
+	if err := validateID("test"); !strings.Contains(err.Error(), "invalid id") {
+		t.Fatalf("error = %v, want invalid id", err)
+	}
+	if err := validateID("00000000-0000-0000-0000-000000000000"); err != nil {
+		t.Fatalf("valid UUID rejected: %v", err)
+	}
+}
+
 func TestWriteCSVUsesServerSummaryColumns(t *testing.T) {
 	from := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	to := from.Add(24 * time.Hour)

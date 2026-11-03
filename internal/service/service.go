@@ -13,10 +13,12 @@ import (
 
 	"github.com/discordia-grupo01/metrics/internal/model"
 	"github.com/discordia-grupo01/metrics/internal/repository"
+	"github.com/google/uuid"
 )
 
 var (
 	ErrForbidden     = errors.New("forbidden")
+	ErrInvalidID     = errors.New("invalid id")
 	ErrInvalidPeriod = errors.New("invalid period")
 )
 
@@ -35,6 +37,9 @@ func New(repo *repository.Repository, authorizer Authorizer) *Service {
 }
 
 func (s *Service) ServerSummary(ctx context.Context, serverID, userID string, from, to time.Time) (model.ServerSummary, error) {
+	if err := validateID(serverID); err != nil {
+		return model.ServerSummary{}, err
+	}
 	if err := s.authorizeServer(ctx, serverID, userID); err != nil {
 		return model.ServerSummary{}, err
 	}
@@ -42,6 +47,9 @@ func (s *Service) ServerSummary(ctx context.Context, serverID, userID string, fr
 }
 
 func (s *Service) ServerGrowth(ctx context.Context, serverID, userID string, from, to time.Time) ([]model.GrowthPoint, error) {
+	if err := validateID(serverID); err != nil {
+		return nil, err
+	}
 	if err := s.authorizeServer(ctx, serverID, userID); err != nil {
 		return nil, err
 	}
@@ -55,6 +63,13 @@ func (s *Service) authorizeServer(ctx context.Context, serverID, userID string) 
 	}
 	if !ok {
 		return ErrForbidden
+	}
+	return nil
+}
+
+func validateID(value string) error {
+	if _, err := uuid.Parse(value); err != nil {
+		return fmt.Errorf("%w: expected UUID", ErrInvalidID)
 	}
 	return nil
 }

@@ -205,7 +205,7 @@ func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.In
 		return nil, err
 	}
 	defer rows.Close()
-	var result []model.Incident
+	result := make([]model.Incident, 0)
 	for rows.Next() {
 		var i model.Incident
 		if err := rows.Scan(&i.ID, &i.Title, &i.Description, &i.AffectedServices, &i.Status, &i.CreatedAt, &i.ResolvedAt); err != nil {
