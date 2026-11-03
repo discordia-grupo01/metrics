@@ -122,7 +122,14 @@ resumen de servidor e incluye:
   membresía;
 - `servers_created`: servidores cuyo primer evento `server_updated` ocurrió en
   el período;
-- `messages_sent`: mensajes registrados por `messaging.message_created`.
+- `messages_sent`: mensajes registrados por `messaging.message_created`;
+- `has_activity`: indica si alguna de esas métricas es distinta de cero;
+- `granularity` y `series`: los mismos tres contadores divididos en tramos
+  para graficar. Si el período dura hasta 24 horas los tramos son por hora
+  (`hour`); si es más largo, por día (`day`). Cada punto trae `start`, el
+  inicio del tramo en UTC. Los tramos arrancan en `from`, así que un cliente
+  que manda su medianoche local recibe días alineados con su zona horaria.
+  Los usuarios activos de cada tramo no suman el total del período.
 
 ### Estado e incidentes
 
