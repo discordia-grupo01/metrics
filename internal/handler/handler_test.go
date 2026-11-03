@@ -54,6 +54,17 @@ func TestRespondErrorDoesNotExposeInternalDetails(t *testing.T) {
 	}
 }
 
+func TestValidPlatformStatus(t *testing.T) {
+	for _, status := range []string{"operational", "degraded", "maintenance"} {
+		if !validPlatformStatus(status) {
+			t.Fatalf("status %q should be valid", status)
+		}
+	}
+	if validPlatformStatus("unknown") {
+		t.Fatal("unknown status should be invalid")
+	}
+}
+
 func TestRespondErrorIgnoresCanceledRequests(t *testing.T) {
 	context, response := testContext()
 	handler := &Handler{}

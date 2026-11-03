@@ -126,14 +126,17 @@ resumen de servidor e incluye:
 
 ### Estado e incidentes
 
-- `GET /v1/status`: devuelve los incidentes activos para cualquier usuario
+- `GET /v1/status`: devuelve el estado actual (`operational`, `degraded` o
+  `maintenance`) y los incidentes activos para cualquier usuario
   autenticado.
 - `POST /v1/metrics/incidents`: crea un incidente; requiere staff.
 - `POST /v1/metrics/incidents/{id}/resolve`: resuelve un incidente activo;
   requiere staff.
 
-Un incidente contiene título, descripción, servicios afectados y estado. Al
-resolverlo deja de aparecer en `GET /v1/status`.
+Un incidente contiene título, descripción, servicios afectados y el estado de
+plataforma que representa (`degraded` por defecto o `maintenance`). Al
+resolverlo deja de aparecer en `GET /v1/status`; si no quedan incidentes
+activos, la plataforma vuelve a `operational`.
 
 ## Eventos consumidos
 

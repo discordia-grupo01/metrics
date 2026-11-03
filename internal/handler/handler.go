@@ -84,7 +84,11 @@ func (h *Handler) Incidents(c *gin.Context) {
 	if h.respondError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"incidents": incidents})
+	platformStatus := model.PlatformOperational
+	if len(incidents) > 0 {
+		platformStatus = incidents[0].PlatformStatus
+	}
+	c.JSON(http.StatusOK, gin.H{"status": platformStatus, "incidents": incidents})
 }
 
 func (h *Handler) CreateIncident(c *gin.Context) {
@@ -102,11 +106,22 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "title and description are required and within their length limits"})
 		return
 	}
+	if input.PlatformStatus == "" {
+		input.PlatformStatus = model.PlatformDegraded
+	}
+	if !validPlatformStatus(input.PlatformStatus) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform_status must be operational, degraded, or maintenance"})
+		return
+	}
 	incident, err := h.repo.CreateIncident(c, input)
 	if h.respondError(c, err) {
 		return
 	}
 	c.JSON(http.StatusCreated, incident)
+}
+
+func validPlatformStatus(value string) bool {
+	return value == model.PlatformOperational || value == model.PlatformDegraded || value == model.PlatformMaintenance
 }
 
 func (h *Handler) ResolveIncident(c *gin.Context) {
