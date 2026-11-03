@@ -188,7 +188,7 @@ paths:
     get:
       tags: [incidents]
       summary: Consultar el estado actual de la plataforma
-      description: Devuelve los incidentes activos para usuarios autenticados.
+      description: Devuelve el estado actual y los incidentes activos para usuarios autenticados.
       security:
         - BearerAuth: []
       responses:
@@ -197,7 +197,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/IncidentList"
+                $ref: "#/components/schemas/PlatformStatus"
         "401":
           $ref: "#/components/responses/Unauthorized"
   /v1/metrics/incidents:
@@ -426,6 +426,10 @@ components:
           items:
             type: string
           example: [metrics, gateway]
+        platform_status:
+          type: string
+          enum: [operational, degraded, maintenance]
+          default: degraded
     Incident:
       type: object
       required:
@@ -433,6 +437,7 @@ components:
         - title
         - description
         - affected_services
+        - platform_status
         - status
         - created_at
       properties:
@@ -447,6 +452,9 @@ components:
           type: array
           items:
             type: string
+        platform_status:
+          type: string
+          enum: [operational, degraded, maintenance]
         status:
           type: string
           enum: [active, resolved]
@@ -461,6 +469,17 @@ components:
       type: object
       required: [incidents]
       properties:
+        incidents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Incident"
+    PlatformStatus:
+      type: object
+      required: [status, incidents]
+      properties:
+        status:
+          type: string
+          enum: [operational, degraded, maintenance]
         incidents:
           type: array
           items:

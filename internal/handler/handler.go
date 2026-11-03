@@ -12,6 +12,7 @@ import (
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type Handler struct {
@@ -83,7 +84,11 @@ func (h *Handler) Incidents(c *gin.Context) {
 	if h.respondError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"incidents": incidents})
+	platformStatus := model.PlatformOperational
+	if len(incidents) > 0 {
+		platformStatus = incidents[0].PlatformStatus
+	}
+	c.JSON(http.StatusOK, gin.H{"status": platformStatus, "incidents": incidents})
 }
 
 func (h *Handler) CreateIncident(c *gin.Context) {
@@ -93,8 +98,19 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 		return
 	}
 	var input model.IncidentInput
-	if c.ShouldBindJSON(&input) != nil || strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.Description) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "title and description are required"})
+	if c.ShouldBindJSON(&input) != nil ||
+		strings.TrimSpace(input.Title) == "" ||
+		strings.TrimSpace(input.Description) == "" ||
+		len([]rune(strings.TrimSpace(input.Title))) > 160 ||
+		len([]rune(strings.TrimSpace(input.Description))) > 5000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "title and description are required and within their length limits"})
+		return
+	}
+	if input.PlatformStatus == "" {
+		input.PlatformStatus = model.PlatformDegraded
+	}
+	if !validPlatformStatus(input.PlatformStatus) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "platform_status must be operational, degraded, or maintenance"})
 		return
 	}
 	incident, err := h.repo.CreateIncident(c, input)
@@ -104,10 +120,18 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 	c.JSON(http.StatusCreated, incident)
 }
 
+func validPlatformStatus(value string) bool {
+	return value == model.PlatformOperational || value == model.PlatformDegraded || value == model.PlatformMaintenance
+}
+
 func (h *Handler) ResolveIncident(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(middleware.UserID(c)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
+		return
+	}
+	if _, err := uuid.Parse(c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid incident id"})
 		return
 	}
 	if h.respondError(c, h.repo.ResolveIncident(c, c.Param("id"))) {
@@ -133,6 +157,8 @@ func (h *Handler) respondError(c *gin.Context, err error) bool {
 		return true
 	}
 	switch {
+	case errors.Is(err, service.ErrInvalidID):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrInvalidPeriod):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrForbidden):
@@ -140,7 +166,7 @@ func (h *Handler) respondError(c *gin.Context, err error) bool {
 	case errors.Is(err, repository.ErrIncidentNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 	}
 	return true
 }

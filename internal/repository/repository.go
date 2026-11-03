@@ -195,7 +195,7 @@ func (r *Repository) Global(ctx context.Context, from, to time.Time) (model.Glob
 }
 
 func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.Incident, error) {
-	query := `SELECT id,title,description,affected_services,status,created_at,resolved_at FROM incidents`
+	query := `SELECT id,title,description,affected_services,platform_status,status,created_at,resolved_at FROM incidents`
 	if activeOnly {
 		query += ` WHERE status = 'active'`
 	}
@@ -205,10 +205,10 @@ func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.In
 		return nil, err
 	}
 	defer rows.Close()
-	var result []model.Incident
+	result := make([]model.Incident, 0)
 	for rows.Next() {
 		var i model.Incident
-		if err := rows.Scan(&i.ID, &i.Title, &i.Description, &i.AffectedServices, &i.Status, &i.CreatedAt, &i.ResolvedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.Title, &i.Description, &i.AffectedServices, &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, i)
@@ -219,10 +219,10 @@ func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.In
 func (r *Repository) CreateIncident(ctx context.Context, input model.IncidentInput) (model.Incident, error) {
 	id := uuid.New()
 	var i model.Incident
-	err := r.db.QueryRowContext(ctx, `INSERT INTO incidents (id,title,description,affected_services)
-		VALUES ($1,$2,$3,$4) RETURNING id,title,description,affected_services,status,created_at,resolved_at`,
-		id, strings.TrimSpace(input.Title), strings.TrimSpace(input.Description), input.AffectedServices).
-		Scan(&i.ID, &i.Title, &i.Description, &i.AffectedServices, &i.Status, &i.CreatedAt, &i.ResolvedAt)
+	err := r.db.QueryRowContext(ctx, `INSERT INTO incidents (id,title,description,affected_services,platform_status)
+		VALUES ($1,$2,$3,$4,$5) RETURNING id,title,description,affected_services,platform_status,status,created_at,resolved_at`,
+		id, strings.TrimSpace(input.Title), strings.TrimSpace(input.Description), input.AffectedServices, input.PlatformStatus).
+		Scan(&i.ID, &i.Title, &i.Description, &i.AffectedServices, &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt)
 	return i, err
 }
 

@@ -18,6 +18,7 @@ func TestRespondErrorMapsKnownErrors(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "invalid period", err: service.ErrInvalidPeriod, wantStatus: 400},
+		{name: "invalid id", err: service.ErrInvalidID, wantStatus: 400},
 		{name: "forbidden", err: service.ErrForbidden, wantStatus: 403},
 		{name: "incident not found", err: repository.ErrIncidentNotFound, wantStatus: 404},
 		{name: "internal error", err: errors.New("database failure"), wantStatus: 500},
@@ -35,6 +36,32 @@ func TestRespondErrorMapsKnownErrors(t *testing.T) {
 				t.Fatalf("status = %d, want %d", response.Code, test.wantStatus)
 			}
 		})
+	}
+}
+
+func TestRespondErrorDoesNotExposeInternalDetails(t *testing.T) {
+	context, response := testContext()
+	handler := &Handler{}
+
+	if !handler.respondError(context, errors.New("postgres password or query details")) {
+		t.Fatal("respondError returned false")
+	}
+	if response.Code != 500 {
+		t.Fatalf("status = %d, want 500", response.Code)
+	}
+	if response.Body.String() != `{"error":"internal server error"}` {
+		t.Fatalf("body = %q, want generic error", response.Body.String())
+	}
+}
+
+func TestValidPlatformStatus(t *testing.T) {
+	for _, status := range []string{"operational", "degraded", "maintenance"} {
+		if !validPlatformStatus(status) {
+			t.Fatalf("status %q should be valid", status)
+		}
+	}
+	if validPlatformStatus("unknown") {
+		t.Fatal("unknown status should be invalid")
 	}
 }
 

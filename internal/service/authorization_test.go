@@ -79,7 +79,7 @@ func TestServiceRejectsUnauthorizedServer(t *testing.T) {
 	defer db.Close()
 	svc := New(repository.New(db), staticAuthorizer{allowed: false})
 
-	_, err := svc.ServerSummary(context.Background(), "server-1", "user-1", testFrom(), testTo())
+	_, err := svc.ServerSummary(context.Background(), "00000000-0000-0000-0000-000000000001", "user-1", testFrom(), testTo())
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("error = %v, want ErrForbidden", err)
 	}
@@ -91,7 +91,7 @@ func TestServicePropagatesAuthorizationError(t *testing.T) {
 	expected := errors.New("projection unavailable")
 	svc := New(repository.New(db), staticAuthorizer{err: expected})
 
-	_, err := svc.ServerGrowth(context.Background(), "server-1", "user-1", testFrom(), testTo())
+	_, err := svc.ServerGrowth(context.Background(), "00000000-0000-0000-0000-000000000001", "user-1", testFrom(), testTo())
 	if !errors.Is(err, expected) {
 		t.Fatalf("error = %v, want %v", err, expected)
 	}

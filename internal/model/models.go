@@ -30,6 +30,7 @@ type Incident struct {
 	Title            string     `json:"title"`
 	Description      string     `json:"description"`
 	AffectedServices []string   `json:"affected_services"`
+	PlatformStatus   string     `json:"platform_status"`
 	Status           string     `json:"status"`
 	CreatedAt        time.Time  `json:"created_at"`
 	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
@@ -39,4 +40,11 @@ type IncidentInput struct {
 	Title            string   `json:"title" binding:"required"`
 	Description      string   `json:"description" binding:"required"`
 	AffectedServices []string `json:"affected_services"`
+	PlatformStatus   string   `json:"platform_status"`
 }
+
+const (
+	PlatformOperational = "operational"
+	PlatformDegraded    = "degraded"
+	PlatformMaintenance = "maintenance"
+)
