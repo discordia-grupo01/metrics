@@ -62,6 +62,50 @@ func TestApplyEventDoesNotReapplyDuplicateEvent(t *testing.T) {
 	}
 }
 
+func TestApplyEventPersistsStaffProjection(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	defer db.Close()
+	userID := uuid.New()
+	eventID := uuid.New()
+	occurredAt := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO metric_events").
+		WithArgs(eventID, "staff_member_added", (*uuid.UUID)(nil), &userID, occurredAt).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO staff_members").
+		WithArgs(&userID, true, occurredAt).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := New(db).ApplyEvent(context.Background(), Event{
+		ID: eventID, Type: "staff_member_added", UserID: &userID,
+		Active: true, OccurredAt: occurredAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIsStaffReturnsFalseWhenProjectionHasNoUser(t *testing.T) {
+	db, mock := newRepositoryMock(t)
+	defer db.Close()
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("staff-user").
+		WillReturnError(sql.ErrNoRows)
+
+	ok, err := New(db).IsStaff(context.Background(), "staff-user")
+	if err != nil || ok {
+		t.Fatalf("IsStaff = %v, %v; want false, nil", ok, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestApplyEventGuardsRoleProjectionAgainstOlderEvents(t *testing.T) {
 	db, mock := newRepositoryMock(t)
 	defer db.Close()

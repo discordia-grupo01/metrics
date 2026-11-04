@@ -24,7 +24,7 @@ var (
 
 type Authorizer interface {
 	CanAdministerServer(context.Context, string, string) (bool, error)
-	IsStaff(string) bool
+	IsStaff(context.Context, string) bool
 }
 
 type Service struct {
@@ -143,7 +143,14 @@ func NewProjectionAuthorizer(repo *repository.Repository, staffIDs []string) *Pr
 	return &ProjectionAuthorizer{repo: repo, staff: staff}
 }
 
-func (a *ProjectionAuthorizer) IsStaff(userID string) bool { _, ok := a.staff[userID]; return ok }
+func (a *ProjectionAuthorizer) IsStaff(ctx context.Context, userID string) bool {
+	ok, err := a.repo.IsStaff(ctx, userID)
+	if err == nil && ok {
+		return true
+	}
+	_, fallback := a.staff[userID]
+	return fallback
+}
 
 func (a *ProjectionAuthorizer) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {
 	return a.repo.CanAdministerServer(ctx, serverID, userID)

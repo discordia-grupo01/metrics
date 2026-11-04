@@ -44,7 +44,7 @@ func main() {
 	defer stop()
 	if cfg.rabbitURL != "" {
 		go func() {
-			if err := events.Consume(ctx, cfg.rabbitURL, cfg.exchange, cfg.queue, repo); err != nil && ctx.Err() == nil {
+			if err := events.Consume(ctx, cfg.rabbitURL, cfg.exchange, cfg.queue, cfg.adminEventsHMACSecret, repo); err != nil && ctx.Err() == nil {
 				log.Printf("event consumer stopped: %v", err)
 			}
 		}()
@@ -86,7 +86,7 @@ type config struct {
 	environment, host, port, userIDHeader                                                     string
 	databaseHost, databasePort, databaseName, databaseUser, databasePassword, databaseSSLMode string
 	databaseURLOverride                                                                       string
-	rabbitURL, exchange, queue, staffUserIDs                                                  string
+	rabbitURL, exchange, queue, staffUserIDs, adminEventsHMACSecret                           string
 }
 
 func loadConfig() config {
@@ -98,7 +98,7 @@ func loadConfig() config {
 		databaseSSLMode: env("DATABASE_SSLMODE", "disable"), rabbitURL: os.Getenv("RABBITMQ_URL"),
 		databaseURLOverride: os.Getenv("DATABASE_URL"),
 		exchange:            env("EVENTS_EXCHANGE", "discordia.events"), queue: env("EVENTS_QUEUE", "metrics"),
-		staffUserIDs: os.Getenv("STAFF_USER_IDS"),
+		staffUserIDs: os.Getenv("STAFF_USER_IDS"), adminEventsHMACSecret: os.Getenv("ADMIN_EVENTS_HMAC_SECRET"),
 	}
 }
 

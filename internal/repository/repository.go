@@ -29,6 +29,7 @@ type Event struct {
 	IsEveryone  bool
 	OwnerID     *uuid.UUID
 	OccurredAt  time.Time
+	Active      bool
 }
 
 func (r *Repository) ApplyEvent(ctx context.Context, event Event) error {
@@ -49,6 +50,12 @@ func (r *Repository) ApplyEvent(ctx context.Context, event Event) error {
 	}
 
 	switch event.Type {
+	case "staff_member_added", "staff_member_removed":
+		_, err = tx.ExecContext(ctx, `INSERT INTO staff_members (user_id, active, updated_at)
+			VALUES ($1,$2,$3)
+			ON CONFLICT (user_id) DO UPDATE SET active=EXCLUDED.active, updated_at=EXCLUDED.updated_at
+			WHERE staff_members.updated_at <= EXCLUDED.updated_at`,
+			event.UserID, event.Active, event.OccurredAt)
 	case "server_updated":
 		_, err = tx.ExecContext(ctx, `INSERT INTO metric_servers (server_id, occurred_at, deleted_at)
 			VALUES ($1,$2,NULL)
@@ -91,10 +98,22 @@ func (r *Repository) ApplyEvent(ctx context.Context, event Event) error {
 			WHERE metric_owners.occurred_at <= EXCLUDED.occurred_at`,
 			event.ServerID, event.OwnerID, event.OccurredAt)
 	}
+
 	if err != nil {
 		return err
 	}
+
 	return tx.Commit()
+}
+
+func (r *Repository) IsStaff(ctx context.Context, userID string) (bool, error) {
+	var active bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT active FROM staff_members WHERE user_id = $1`, userID).Scan(&active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return active, err
 }
 
 func (r *Repository) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {
