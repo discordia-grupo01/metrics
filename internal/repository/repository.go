@@ -10,6 +10,7 @@ import (
 
 	"github.com/discordia-grupo01/metrics/internal/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 var ErrIncidentNotFound = errors.New("incident not found or already resolved")
@@ -262,7 +263,7 @@ func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.In
 	result := make([]model.Incident, 0)
 	for rows.Next() {
 		var i model.Incident
-		if err := rows.Scan(&i.ID, &i.Title, &i.Description, &i.AffectedServices, &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.Title, &i.Description, pgtype.NewMap().SQLScanner(&i.AffectedServices), &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, i)
@@ -276,7 +277,7 @@ func (r *Repository) CreateIncident(ctx context.Context, input model.IncidentInp
 	err := r.db.QueryRowContext(ctx, `INSERT INTO incidents (id,title,description,affected_services,platform_status)
 		VALUES ($1,$2,$3,$4,$5) RETURNING id,title,description,affected_services,platform_status,status,created_at,resolved_at`,
 		id, strings.TrimSpace(input.Title), strings.TrimSpace(input.Description), input.AffectedServices, input.PlatformStatus).
-		Scan(&i.ID, &i.Title, &i.Description, &i.AffectedServices, &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt)
+		Scan(&i.ID, &i.Title, &i.Description, pgtype.NewMap().SQLScanner(&i.AffectedServices), &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt)
 	return i, err
 }
 
