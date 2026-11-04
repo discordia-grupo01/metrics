@@ -144,11 +144,12 @@ func NewProjectionAuthorizer(repo *repository.Repository, staffIDs []string) *Pr
 }
 
 func (a *ProjectionAuthorizer) IsStaff(ctx context.Context, userID string) bool {
-	if _, ok := a.staff[userID]; ok {
+	ok, err := a.repo.IsStaff(ctx, userID)
+	if err == nil && ok {
 		return true
 	}
-	ok, err := a.repo.IsStaff(ctx, userID)
-	return err == nil && ok
+	_, fallback := a.staff[userID]
+	return fallback
 }
 
 func (a *ProjectionAuthorizer) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {

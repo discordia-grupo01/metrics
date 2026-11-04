@@ -17,11 +17,52 @@ func TestProjectionAuthorizerChecksStaffMembership(t *testing.T) {
 	defer db.Close()
 	authorizer := NewProjectionAuthorizer(repository.New(db), []string{" staff-user ", ""})
 
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("staff-user").
+		WillReturnRows(sqlmock.NewRows([]string{"active"}).AddRow(true))
 	if !authorizer.IsStaff(context.Background(), "staff-user") {
 		t.Fatal("expected configured staff user to be authorized")
 	}
+
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("other-user").
+		WillReturnRows(sqlmock.NewRows([]string{"active"}).AddRow(false))
 	if authorizer.IsStaff(context.Background(), "other-user") {
 		t.Fatal("expected unconfigured user not to be staff")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectionAuthorizerUsesStaffProjectionBeforeFallback(t *testing.T) {
+	db, mock := newMockDB(t)
+	defer db.Close()
+	authorizer := NewProjectionAuthorizer(repository.New(db), []string{"staff-user"})
+
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("staff-user").
+		WillReturnRows(sqlmock.NewRows([]string{"active"}).AddRow(false))
+
+	if !authorizer.IsStaff(context.Background(), "staff-user") {
+		t.Fatal("expected configured fallback staff user to be authorized")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectionAuthorizerAuthorizesProjectedStaff(t *testing.T) {
+	db, mock := newMockDB(t)
+	defer db.Close()
+	authorizer := NewProjectionAuthorizer(repository.New(db), nil)
+
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("staff-user").
+		WillReturnRows(sqlmock.NewRows([]string{"active"}).AddRow(true))
+
+	if !authorizer.IsStaff(context.Background(), "staff-user") {
+		t.Fatal("expected projected staff user to be authorized")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

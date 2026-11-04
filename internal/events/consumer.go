@@ -160,7 +160,8 @@ func handle(ctx context.Context, repo *repository.Repository, routingKey string,
 	default:
 		return &invalidEvent{"unsupported routing key"}
 	}
-	if serverID == nil && projection.Type != "message" {
+	if serverID == nil && projection.Type != "message" &&
+		projection.Type != "staff_member_added" && projection.Type != "staff_member_removed" {
 		return &invalidEvent{"server_id is required"}
 	}
 	return repo.ApplyEvent(ctx, projection)
