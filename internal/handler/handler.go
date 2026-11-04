@@ -64,7 +64,7 @@ func (h *Handler) Export(c *gin.Context) {
 
 func (h *Handler) Global(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
-	if !authorizer.IsStaff(middleware.UserID(c)) {
+	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
 		return
 	}
@@ -93,7 +93,7 @@ func (h *Handler) Incidents(c *gin.Context) {
 
 func (h *Handler) CreateIncident(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
-	if !authorizer.IsStaff(middleware.UserID(c)) {
+	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
 		return
 	}
@@ -126,7 +126,7 @@ func validPlatformStatus(value string) bool {
 
 func (h *Handler) ResolveIncident(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
-	if !authorizer.IsStaff(middleware.UserID(c)) {
+	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
 		return
 	}

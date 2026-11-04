@@ -17,10 +17,10 @@ func TestProjectionAuthorizerChecksStaffMembership(t *testing.T) {
 	defer db.Close()
 	authorizer := NewProjectionAuthorizer(repository.New(db), []string{" staff-user ", ""})
 
-	if !authorizer.IsStaff("staff-user") {
+	if !authorizer.IsStaff(context.Background(), "staff-user") {
 		t.Fatal("expected configured staff user to be authorized")
 	}
-	if authorizer.IsStaff("other-user") {
+	if authorizer.IsStaff(context.Background(), "other-user") {
 		t.Fatal("expected unconfigured user not to be staff")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -115,7 +115,7 @@ func (a staticAuthorizer) CanAdministerServer(context.Context, string, string) (
 	return a.allowed, a.err
 }
 
-func (staticAuthorizer) IsStaff(string) bool { return false }
+func (staticAuthorizer) IsStaff(context.Context, string) bool { return false }
 
 func testFrom() time.Time { return time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC) }
 func testTo() time.Time   { return time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC) }

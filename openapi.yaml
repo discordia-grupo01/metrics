@@ -12,7 +12,8 @@ info:
 
     Las métricas de servidor requieren que el usuario autenticado tenga
     ADMINISTRATOR en el servidor consultado. Las métricas globales y la gestión
-    de incidentes requieren un usuario incluido en STAFF_USER_IDS.
+    de incidentes requieren un usuario de staff según la proyección local
+    sincronizada desde admin.
   contact:
     name: Equipo Discordia
 servers:
@@ -161,7 +162,7 @@ paths:
       summary: Consultar métricas globales de la plataforma
       description: >-
         Agrega actividad de todos los servidores. Requiere que el usuario
-        autenticado esté incluido en STAFF_USER_IDS.
+        autenticado esté en la proyección local de staff sincronizada desde admin.
 
         Además de los totales devuelve una serie para graficar. El servicio
         elige la granularidad: períodos de hasta 24 horas se dividen por hora

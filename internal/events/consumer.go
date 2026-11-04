@@ -2,9 +2,13 @@ package events
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/discordia-grupo01/metrics/internal/repository"
@@ -23,9 +27,10 @@ type envelope struct {
 	Permissions []string  `json:"permissions"`
 	IsEveryone  bool      `json:"is_everyone"`
 	OwnerID     string    `json:"owner_id"`
+	Signature   string    `json:"signature"`
 }
 
-func Consume(ctx context.Context, url, exchange, queue string, repo *repository.Repository) error {
+func Consume(ctx context.Context, url, exchange, queue, staffEventSecret string, repo *repository.Repository) error {
 	connection, err := amqp091.Dial(url)
 	if err != nil {
 		return err
@@ -47,6 +52,7 @@ func Consume(ctx context.Context, url, exchange, queue string, repo *repository.
 		"servers.server_deleted", "servers.role_updated", "servers.role_deleted",
 		"servers.member_roles_updated", "servers.owner_updated",
 		"messaging.message_created",
+		"admin.staff_member_added", "admin.staff_member_removed",
 	} {
 		if err := channel.QueueBind(queue, key, exchange, false, nil); err != nil {
 			return err
@@ -64,7 +70,7 @@ func Consume(ctx context.Context, url, exchange, queue string, repo *repository.
 			if !ok {
 				return nil
 			}
-			if err := handle(ctx, repo, delivery.RoutingKey, delivery.Body); err != nil {
+			if err := handle(ctx, repo, delivery.RoutingKey, delivery.Body, staffEventSecret); err != nil {
 				log.Printf("metrics event %s failed: %v", delivery.RoutingKey, err)
 				invalid := isInvalid(err)
 				_ = delivery.Nack(false, !invalid)
@@ -75,7 +81,11 @@ func Consume(ctx context.Context, url, exchange, queue string, repo *repository.
 	}
 }
 
-func handle(ctx context.Context, repo *repository.Repository, routingKey string, body []byte) error {
+func handle(ctx context.Context, repo *repository.Repository, routingKey string, body []byte, secrets ...string) error {
+	staffEventSecret := ""
+	if len(secrets) > 0 {
+		staffEventSecret = secrets[0]
+	}
 	var event envelope
 	if err := json.Unmarshal(body, &event); err != nil {
 		return &invalidEvent{err.Error()}
@@ -99,6 +109,15 @@ func handle(ctx context.Context, repo *repository.Repository, routingKey string,
 		Permissions: event.Permissions, IsEveryone: event.IsEveryone,
 	}
 	switch routingKey {
+	case "admin.staff_member_added", "admin.staff_member_removed":
+		if userID == nil {
+			return &invalidEvent{"user_id must be a UUID"}
+		}
+		if !verifyStaffEvent(staffEventSecret, routingKey, event.EventID, event.UserID, occurredAt, event.Signature) {
+			return &invalidEvent{"invalid staff event signature"}
+		}
+		projection.Type = strings.TrimPrefix(routingKey, "admin.")
+		projection.Active = routingKey == "admin.staff_member_added"
 	case "servers.member_joined":
 		projection.Type = "member_joined"
 	case "servers.member_left":
@@ -113,12 +132,14 @@ func handle(ctx context.Context, repo *repository.Repository, routingKey string,
 		if err != nil {
 			return err
 		}
+
 	case "servers.role_deleted":
 		projection.Type = "role_deleted"
 		projection.RoleID, err = parseRequiredUUID(event.RoleID, "role_id")
 		if err != nil {
 			return err
 		}
+
 	case "servers.member_roles_updated":
 		projection.Type = "member_roles_updated"
 		projection.RoleIDs, err = parseUUIDs(event.RoleIDs)
@@ -143,6 +164,21 @@ func handle(ctx context.Context, repo *repository.Repository, routingKey string,
 		return &invalidEvent{"server_id is required"}
 	}
 	return repo.ApplyEvent(ctx, projection)
+}
+
+func verifyStaffEvent(secret, routingKey, eventID, userID string, occurredAt time.Time, got string) bool {
+	if secret == "" || got == "" {
+		return false
+	}
+	raw, err := hex.DecodeString(got)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(strings.Join([]string{
+		routingKey, eventID, userID, occurredAt.UTC().Format(time.RFC3339Nano),
+	}, "\n")))
+	return hmac.Equal(raw, mac.Sum(nil))
 }
 
 func parseUUID(value string) *uuid.UUID {
