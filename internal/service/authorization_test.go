@@ -17,11 +17,52 @@ func TestProjectionAuthorizerChecksStaffMembership(t *testing.T) {
 	defer db.Close()
 	authorizer := NewProjectionAuthorizer(repository.New(db), []string{" staff-user ", ""})
 
-	if !authorizer.IsStaff("staff-user") {
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("staff-user").
+		WillReturnRows(sqlmock.NewRows([]string{"active"}).AddRow(true))
+	if !authorizer.IsStaff(context.Background(), "staff-user") {
 		t.Fatal("expected configured staff user to be authorized")
 	}
-	if authorizer.IsStaff("other-user") {
+
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("other-user").
+		WillReturnRows(sqlmock.NewRows([]string{"active"}).AddRow(false))
+	if authorizer.IsStaff(context.Background(), "other-user") {
 		t.Fatal("expected unconfigured user not to be staff")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectionAuthorizerUsesStaffProjectionBeforeFallback(t *testing.T) {
+	db, mock := newMockDB(t)
+	defer db.Close()
+	authorizer := NewProjectionAuthorizer(repository.New(db), []string{"staff-user"})
+
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("staff-user").
+		WillReturnRows(sqlmock.NewRows([]string{"active"}).AddRow(false))
+
+	if !authorizer.IsStaff(context.Background(), "staff-user") {
+		t.Fatal("expected configured fallback staff user to be authorized")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectionAuthorizerAuthorizesProjectedStaff(t *testing.T) {
+	db, mock := newMockDB(t)
+	defer db.Close()
+	authorizer := NewProjectionAuthorizer(repository.New(db), nil)
+
+	mock.ExpectQuery("SELECT active FROM staff_members").
+		WithArgs("staff-user").
+		WillReturnRows(sqlmock.NewRows([]string{"active"}).AddRow(true))
+
+	if !authorizer.IsStaff(context.Background(), "staff-user") {
+		t.Fatal("expected projected staff user to be authorized")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -115,7 +156,7 @@ func (a staticAuthorizer) CanAdministerServer(context.Context, string, string) (
 	return a.allowed, a.err
 }
 
-func (staticAuthorizer) IsStaff(string) bool { return false }
+func (staticAuthorizer) IsStaff(context.Context, string) bool { return false }
 
 func testFrom() time.Time { return time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC) }
 func testTo() time.Time   { return time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC) }

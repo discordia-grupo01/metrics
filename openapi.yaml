@@ -12,7 +12,8 @@ info:
 
     Las métricas de servidor requieren que el usuario autenticado tenga
     ADMINISTRATOR en el servidor consultado. Las métricas globales y la gestión
-    de incidentes requieren un usuario incluido en STAFF_USER_IDS.
+    de incidentes requieren un usuario de staff según la proyección local
+    sincronizada desde admin.
   contact:
     name: Equipo Discordia
 servers:
@@ -161,7 +162,13 @@ paths:
       summary: Consultar métricas globales de la plataforma
       description: >-
         Agrega actividad de todos los servidores. Requiere que el usuario
-        autenticado esté incluido en STAFF_USER_IDS.
+        autenticado esté en la proyección local de staff sincronizada desde admin.
+
+        Además de los totales devuelve una serie para graficar. El servicio
+        elige la granularidad: períodos de hasta 24 horas se dividen por hora
+        y los más largos por día. Los tramos empiezan en `from`, así que si el
+        cliente manda la medianoche local los días coinciden con su zona
+        horaria. El último tramo se recorta en `to`.
       security:
         - BearerAuth: []
       parameters:
@@ -361,6 +368,8 @@ components:
         - servers_created
         - messages_sent
         - has_activity
+        - granularity
+        - series
       properties:
         from:
           type: string
@@ -382,6 +391,36 @@ components:
         has_activity:
           type: boolean
           description: False cuando todos los contadores del período son cero.
+        granularity:
+          type: string
+          enum: [hour, day]
+          description: hour si el período dura hasta 24 horas; day si es más largo.
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/GlobalPoint"
+    GlobalPoint:
+      type: object
+      required: [start, active_users, servers_created, messages_sent]
+      properties:
+        start:
+          type: string
+          format: date-time
+          description: Inicio del tramo, en UTC. El cliente lo muestra en su zona horaria.
+        active_users:
+          type: integer
+          minimum: 0
+          description: >-
+            Usuarios distintos activos dentro del tramo, con el mismo criterio
+            que el active_users del período. No sumar los tramos para obtener
+            el total: quien estuvo activo varios días aparece en cada uno, pero
+            en el total del período cuenta una sola vez.
+        servers_created:
+          type: integer
+          minimum: 0
+        messages_sent:
+          type: integer
+          minimum: 0
     GrowthResponse:
       type: object
       required: [from, to, has_activity, points]

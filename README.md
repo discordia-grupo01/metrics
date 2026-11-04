@@ -50,7 +50,8 @@ Usar [.env.example](.env.example) como plantilla.
 | `RABBITMQ_URL` | vacío | URL AMQP. Si está vacía, la API arranca pero no consume eventos. |
 | `EVENTS_EXCHANGE` | `discordia.events` | Exchange topic compartido por los servicios. |
 | `EVENTS_QUEUE` | `metrics` | Cola durable exclusiva de esta proyección. |
-| `STAFF_USER_IDS` | vacío | UUIDs separados por coma autorizados para métricas globales e incidentes. |
+| `STAFF_USER_IDS` | vacío | Bootstrap/fallback temporal de UUIDs de staff. La fuente principal son los eventos firmados de `admin`. |
+| `ADMIN_EVENTS_HMAC_SECRET` | vacío | Secreto compartido con `admin` para validar cambios de staff recibidos por RabbitMQ. |
 | `USER_ID_HEADER` | vacío | Header de identidad para desarrollo local. No configurarlo en producción. |
 
 ### Identidad y autorización
@@ -65,10 +66,10 @@ propietario o a un usuario con un rol que tenga `ADMINISTRATOR`. Si la
 proyección aún no conoce el servidor o está atrasada, se deniega el acceso de
 forma segura; no se consulta a `servers` como fallback.
 
-Las métricas globales y la gestión de incidentes requieren que el `sub` esté
-incluido en `STAFF_USER_IDS`. Esta configuración es una medida operativa
-provisoria hasta que exista una fuente de verdad de roles de staff integrada
-con el servicio de administración.
+Las métricas globales y la gestión de incidentes consultan una proyección local
+de los miembros de staff publicada por `admin` mediante eventos RabbitMQ
+firmados. `STAFF_USER_IDS` queda como bootstrap/fallback temporal para no
+bloquear despliegues durante la migración.
 
 `USER_ID_HEADER` existe únicamente para desarrollo local y pruebas manuales. No
 debe configurarse en un entorno expuesto: cualquier cliente que pueda enviar
@@ -122,7 +123,14 @@ resumen de servidor e incluye:
   membresía;
 - `servers_created`: servidores cuyo primer evento `server_updated` ocurrió en
   el período;
-- `messages_sent`: mensajes registrados por `messaging.message_created`.
+- `messages_sent`: mensajes registrados por `messaging.message_created`;
+- `has_activity`: indica si alguna de esas métricas es distinta de cero;
+- `granularity` y `series`: los mismos tres contadores divididos en tramos
+  para graficar. Si el período dura hasta 24 horas los tramos son por hora
+  (`hour`); si es más largo, por día (`day`). Cada punto trae `start`, el
+  inicio del tramo en UTC. Los tramos arrancan en `from`, así que un cliente
+  que manda su medianoche local recibe días alineados con su zona horaria.
+  Los usuarios activos de cada tramo no suman el total del período.
 
 ### Estado e incidentes
 

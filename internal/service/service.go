@@ -24,7 +24,7 @@ var (
 
 type Authorizer interface {
 	CanAdministerServer(context.Context, string, string) (bool, error)
-	IsStaff(string) bool
+	IsStaff(context.Context, string) bool
 }
 
 type Service struct {
@@ -54,6 +54,27 @@ func (s *Service) ServerGrowth(ctx context.Context, serverID, userID string, fro
 		return nil, err
 	}
 	return s.repo.Growth(ctx, serverID, from, to)
+}
+
+func (s *Service) Global(ctx context.Context, from, to time.Time) (model.GlobalSummary, error) {
+	summary, err := s.repo.Global(ctx, from, to)
+	if err != nil {
+		return model.GlobalSummary{}, err
+	}
+	granularity, step := GranularityFor(from, to)
+	series, err := s.repo.GlobalSeries(ctx, from, to, step)
+	if err != nil {
+		return model.GlobalSummary{}, err
+	}
+	summary.Granularity, summary.Series = granularity, series
+	return summary, nil
+}
+
+func GranularityFor(from, to time.Time) (string, time.Duration) {
+	if to.Sub(from) <= 24*time.Hour {
+		return model.GranularityHour, time.Hour
+	}
+	return model.GranularityDay, 24 * time.Hour
 }
 
 func (s *Service) authorizeServer(ctx context.Context, serverID, userID string) error {
@@ -122,7 +143,14 @@ func NewProjectionAuthorizer(repo *repository.Repository, staffIDs []string) *Pr
 	return &ProjectionAuthorizer{repo: repo, staff: staff}
 }
 
-func (a *ProjectionAuthorizer) IsStaff(userID string) bool { _, ok := a.staff[userID]; return ok }
+func (a *ProjectionAuthorizer) IsStaff(ctx context.Context, userID string) bool {
+	ok, err := a.repo.IsStaff(ctx, userID)
+	if err == nil && ok {
+		return true
+	}
+	_, fallback := a.staff[userID]
+	return fallback
+}
 
 func (a *ProjectionAuthorizer) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {
 	return a.repo.CanAdministerServer(ctx, serverID, userID)

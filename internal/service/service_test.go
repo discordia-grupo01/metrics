@@ -70,3 +70,23 @@ func TestWriteCSVUsesServerSummaryColumns(t *testing.T) {
 		t.Fatal("server CSV must not use global summary fields")
 	}
 }
+
+func TestGranularityForUsesHoursUpToOneDay(t *testing.T) {
+	from := time.Date(2026, 11, 3, 3, 0, 0, 0, time.UTC)
+	cases := []struct {
+		to       time.Time
+		want     string
+		wantStep time.Duration
+	}{
+		{from.Add(14 * time.Hour), model.GranularityHour, time.Hour},
+		{from.Add(24 * time.Hour), model.GranularityHour, time.Hour},
+		{from.Add(24*time.Hour + time.Minute), model.GranularityDay, 24 * time.Hour},
+		{from.Add(90 * 24 * time.Hour), model.GranularityDay, 24 * time.Hour},
+	}
+	for _, tc := range cases {
+		got, step := GranularityFor(from, tc.to)
+		if got != tc.want || step != tc.wantStep {
+			t.Fatalf("GranularityFor(%v) = %s/%v, want %s/%v", tc.to.Sub(from), got, step, tc.want, tc.wantStep)
+		}
+	}
+}

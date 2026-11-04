@@ -12,13 +12,27 @@ type ServerSummary struct {
 }
 
 type GlobalSummary struct {
-	From           time.Time `json:"from"`
-	To             time.Time `json:"to"`
+	From           time.Time     `json:"from"`
+	To             time.Time     `json:"to"`
+	ActiveUsers    int           `json:"active_users"`
+	ServersCreated int           `json:"servers_created"`
+	MessagesSent   int           `json:"messages_sent"`
+	HasActivity    bool          `json:"has_activity"`
+	Granularity    string        `json:"granularity"`
+	Series         []GlobalPoint `json:"series"`
+}
+
+type GlobalPoint struct {
+	Start          time.Time `json:"start"`
 	ActiveUsers    int       `json:"active_users"`
 	ServersCreated int       `json:"servers_created"`
 	MessagesSent   int       `json:"messages_sent"`
-	HasActivity    bool      `json:"has_activity"`
 }
+
+const (
+	GranularityHour = "hour"
+	GranularityDay  = "day"
+)
 
 type GrowthPoint struct {
 	Date    string `json:"date"`

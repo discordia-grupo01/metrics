@@ -2,7 +2,12 @@ package events
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestHandleRejectsMalformedEvents(t *testing.T) {
@@ -80,4 +85,32 @@ func TestParseUUIDsAcceptsEmptyRoleAssignment(t *testing.T) {
 	if ids == nil || len(ids) != 0 {
 		t.Fatalf("ids = %#v, want empty non-nil slice", ids)
 	}
+}
+
+func TestHandleRejectsStaffEventWithInvalidSignature(t *testing.T) {
+	body := `{"event_id":"00000000-0000-0000-0000-000000000001","occurred_at":"2026-10-30T12:00:00Z","user_id":"00000000-0000-0000-0000-000000000003","signature":"00"}`
+
+	err := handle(context.Background(), nil, "admin.staff_member_added", []byte(body), "secret")
+	if err == nil || !isInvalid(err) || err.Error() != "invalid staff event signature" {
+		t.Fatalf("error = %v, want invalid signature event", err)
+	}
+}
+
+func TestVerifyStaffEventAcceptsSignatureWithoutServerID(t *testing.T) {
+	occurredAt := time.Date(2026, 10, 30, 12, 0, 0, 123456000, time.UTC)
+	eventID := "00000000-0000-0000-0000-000000000001"
+	userID := "00000000-0000-0000-0000-000000000003"
+	secret := "secret"
+	signature := staffSignature(secret, "admin.staff_member_added", eventID, userID, occurredAt)
+	if !verifyStaffEvent(secret, "admin.staff_member_added", eventID, userID, occurredAt, signature) {
+		t.Fatal("expected valid staff event signature")
+	}
+}
+
+func staffSignature(secret, routingKey, eventID, userID string, occurredAt time.Time) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(strings.Join([]string{
+		routingKey, eventID, userID, occurredAt.UTC().Format(time.RFC3339Nano),
+	}, "\n")))
+	return hex.EncodeToString(mac.Sum(nil))
 }
