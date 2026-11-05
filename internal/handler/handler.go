@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/discordia-grupo01/metrics/internal/health"
 	"github.com/discordia-grupo01/metrics/internal/middleware"
 	"github.com/discordia-grupo01/metrics/internal/model"
 	"github.com/discordia-grupo01/metrics/internal/repository"
@@ -18,10 +19,24 @@ import (
 type Handler struct {
 	service *service.Service
 	repo    *repository.Repository
+	health  *health.Monitor
 }
 
-func New(svc *service.Service, repo *repository.Repository) *Handler {
-	return &Handler{service: svc, repo: repo}
+func New(svc *service.Service, repo *repository.Repository, monitor *health.Monitor) *Handler {
+	return &Handler{service: svc, repo: repo, health: monitor}
+}
+
+func (h *Handler) ServiceHealth(c *gin.Context) {
+	authorizer := c.MustGet("authorizer").(service.Authorizer)
+	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
+		return
+	}
+	if h.health == nil {
+		c.JSON(http.StatusOK, gin.H{"services": []health.ServiceStatus{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"services": h.health.Snapshot()})
 }
 
 func (h *Handler) ServerSummary(c *gin.Context) {

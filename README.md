@@ -53,6 +53,11 @@ Usar [.env.example](.env.example) como plantilla.
 | `STAFF_USER_IDS` | vacío | Bootstrap/fallback temporal de UUIDs de staff. La fuente principal son los eventos firmados de `admin`. |
 | `ADMIN_EVENTS_HMAC_SECRET` | vacío | Secreto compartido con `admin` para validar cambios de staff recibidos por RabbitMQ. |
 | `USER_ID_HEADER` | vacío | Header de identidad para desarrollo local. No configurarlo en producción. |
+| `HEALTH_CHECKS` | vacío | Lista separada por comas de `servicio=URL/readyz` que metrics consulta para mostrar el estado operativo. |
+| `HEALTH_CHECK_INTERVAL` | `30s` | Intervalo entre consultas de health checks. |
+| `HEALTH_CHECK_TIMEOUT` | `3s` | Timeout de cada consulta. |
+| `HEALTH_FAILURE_THRESHOLD` | `2` | Fallos consecutivos necesarios para marcar un servicio como `degraded`. |
+| `HEALTH_RECOVERY_THRESHOLD` | `2` | Respuestas exitosas consecutivas necesarias para recuperar un servicio degradado. |
 
 ### Identidad y autorización
 
@@ -137,6 +142,9 @@ resumen de servidor e incluye:
 - `GET /v1/status`: devuelve el estado actual (`operational`, `degraded` o
   `maintenance`) y los incidentes activos para cualquier usuario
   autenticado.
+- `GET /v1/health/services`: devuelve a staff el último estado observado de
+  cada servicio configurado. Es una señal para sugerir un incidente; no crea
+  incidentes automáticamente.
 - `POST /v1/metrics/incidents`: crea un incidente; requiere staff.
 - `POST /v1/metrics/incidents/{id}/resolve`: resuelve un incidente activo;
   requiere staff.

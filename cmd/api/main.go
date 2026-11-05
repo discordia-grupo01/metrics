@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/discordia-grupo01/metrics/internal/events"
 	"github.com/discordia-grupo01/metrics/internal/handler"
+	"github.com/discordia-grupo01/metrics/internal/health"
 	"github.com/discordia-grupo01/metrics/internal/middleware"
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
@@ -38,7 +40,14 @@ func main() {
 	repo := repository.New(db)
 	authorizer := service.NewProjectionAuthorizer(repo, strings.Split(cfg.staffUserIDs, ","))
 	svc := service.New(repo, authorizer)
-	h := handler.New(svc, repo)
+	healthMonitor := health.NewMonitor(
+		health.ParseTargets(cfg.healthChecks),
+		&http.Client{Timeout: cfg.healthTimeout},
+		cfg.healthInterval,
+		cfg.healthFailureThreshold,
+		cfg.healthRecoveryThreshold,
+	)
+	h := handler.New(svc, repo, healthMonitor)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -49,6 +58,7 @@ func main() {
 			}
 		}()
 	}
+	go healthMonitor.Start(ctx)
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
@@ -67,6 +77,7 @@ func main() {
 	auth.GET("/servers/:serverId/metrics/export.csv", h.Export)
 	auth.GET("/metrics/global", h.Global)
 	auth.GET("/status", h.Incidents)
+	auth.GET("/health/services", h.ServiceHealth)
 	auth.POST("/metrics/incidents", h.CreateIncident)
 	auth.POST("/metrics/incidents/:id/resolve", h.ResolveIncident)
 
@@ -86,7 +97,9 @@ type config struct {
 	environment, host, port, userIDHeader                                                     string
 	databaseHost, databasePort, databaseName, databaseUser, databasePassword, databaseSSLMode string
 	databaseURLOverride                                                                       string
-	rabbitURL, exchange, queue, staffUserIDs, adminEventsHMACSecret                           string
+	rabbitURL, exchange, queue, staffUserIDs, adminEventsHMACSecret, healthChecks             string
+	healthInterval, healthTimeout                                                             time.Duration
+	healthFailureThreshold, healthRecoveryThreshold                                           int
 }
 
 func loadConfig() config {
@@ -99,7 +112,33 @@ func loadConfig() config {
 		databaseURLOverride: os.Getenv("DATABASE_URL"),
 		exchange:            env("EVENTS_EXCHANGE", "discordia.events"), queue: env("EVENTS_QUEUE", "metrics"),
 		staffUserIDs: os.Getenv("STAFF_USER_IDS"), adminEventsHMACSecret: os.Getenv("ADMIN_EVENTS_HMAC_SECRET"),
+		healthChecks:            os.Getenv("HEALTH_CHECKS"),
+		healthInterval:          durationEnv("HEALTH_CHECK_INTERVAL", 30*time.Second),
+		healthTimeout:           durationEnv("HEALTH_CHECK_TIMEOUT", 3*time.Second),
+		healthFailureThreshold:  intEnv("HEALTH_FAILURE_THRESHOLD", 2),
+		healthRecoveryThreshold: intEnv("HEALTH_RECOVERY_THRESHOLD", 2),
 	}
+}
+
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
+			return parsed
+		}
+		log.Printf("invalid %s=%q, using %s", key, value, fallback)
+	}
+	return fallback
+}
+
+func intEnv(key string, fallback int) int {
+	if value := os.Getenv(key); value != "" {
+		var parsed int
+		if _, err := fmt.Sscanf(value, "%d", &parsed); err == nil && parsed > 0 {
+			return parsed
+		}
+		log.Printf("invalid %s=%q, using %d", key, value, fallback)
+	}
+	return fallback
 }
 
 func (c config) databaseURL() string {
