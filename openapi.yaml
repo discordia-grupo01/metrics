@@ -237,6 +237,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/health/services:
+    get:
+      tags: [incidents]
+      summary: Consultar el estado de salud de los servicios
+      description: Requiere staff. Devuelve el último estado observado por el monitor de metrics.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Estados observados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceHealthList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: El usuario no tiene rol de staff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/metrics/incidents/{id}/resolve:
     post:
       tags: [incidents]
@@ -523,3 +545,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Incident"
+    ServiceHealthList:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceHealth"
+    ServiceHealth:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [unknown, operational, degraded]
+        last_checked_at:
+          type: string
+          format: date-time
+        consecutive_failures:
+          type: integer
+          minimum: 0

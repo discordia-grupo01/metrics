@@ -53,6 +53,11 @@ Usar [.env.example](.env.example) como plantilla.
 | `STAFF_USER_IDS` | vacío | Bootstrap/fallback temporal de UUIDs de staff. La fuente principal son los eventos firmados de `admin`. |
 | `ADMIN_EVENTS_HMAC_SECRET` | vacío | Secreto compartido con `admin` para validar cambios de staff recibidos por RabbitMQ. |
 | `USER_ID_HEADER` | vacío | Header de identidad para desarrollo local. No configurarlo en producción. |
+| `HEALTH_CHECKS` | vacío | Lista separada por comas de `servicio=URL/readyz` que metrics consulta para mostrar el estado operativo. |
+| `HEALTH_CHECK_INTERVAL` | `30s` | Intervalo entre consultas de health checks. |
+| `HEALTH_CHECK_TIMEOUT` | `3s` | Timeout de cada consulta. |
+| `HEALTH_FAILURE_THRESHOLD` | `2` | Fallos consecutivos necesarios para marcar un servicio como `degraded`. |
+| `HEALTH_RECOVERY_THRESHOLD` | `2` | Respuestas exitosas consecutivas necesarias para recuperar un servicio degradado. |
 
 ### Identidad y autorización
 
@@ -137,9 +142,18 @@ resumen de servidor e incluye:
 - `GET /v1/status`: devuelve el estado actual (`operational`, `degraded` o
   `maintenance`) y los incidentes activos para cualquier usuario
   autenticado.
+- `GET /v1/health/services`: devuelve a staff el último estado observado de
+  cada servicio configurado. Es una señal para sugerir un incidente; no crea
+  incidentes automáticamente.
 - `POST /v1/metrics/incidents`: crea un incidente; requiere staff.
 - `POST /v1/metrics/incidents/{id}/resolve`: resuelve un incidente activo;
   requiere staff.
+
+Al publicar o resolver un incidente, metrics publica `platform.status_changed`
+en RabbitMQ cuando `RABBITMQ_URL` está configurada. El payload solo contiene el
+estado actual y un `event_id`; notifications lo convierte en un broadcast
+`status_changed` sobre el tópico `platform` con `refetch: true`. El evento es
+un aviso y no reemplaza `GET /v1/status`, que sigue siendo la fuente de verdad.
 
 Un incidente contiene título, descripción, servicios afectados y el estado de
 plataforma que representa (`degraded` por defecto o `maintenance`). Al
@@ -230,11 +244,27 @@ Configurar estas variables en Render:
 | `RABBITMQ_URL` | URL AMQP del RabbitMQ desplegado; dejar vacía solo si no se consumirán eventos |
 | `EVENTS_EXCHANGE` | `discordia.events` |
 | `EVENTS_QUEUE` | `metrics` |
+| `HEALTH_CHECKS` | Ver configuración recomendada debajo |
+| `HEALTH_CHECK_INTERVAL` | `30s` |
+| `HEALTH_CHECK_TIMEOUT` | `3s` |
+| `HEALTH_FAILURE_THRESHOLD` | `2` |
+| `HEALTH_RECOVERY_THRESHOLD` | `2` |
 | `STAFF_USER_IDS` | UUIDs de staff separados por comas |
 
 No es necesario configurar `JWT_SECRET`: la validación del JWT pertenece a
 Kong y metrics recibe la identidad ya validada. Tampoco configurar
 `USER_ID_HEADER` en producción, porque permite suplantar la identidad.
+
+#### Health checks entre hosts
+
+Metrics consulta los endpoints internos por Tailscale. La ruta canónica del
+repositorio es `/readyz` (no `/healthz`); todos los servicios actualmente
+implementados exponen esa ruta. Configurar en Render:
+
+```text
+HEALTH_CHECKS=backend=http://100.76.97.63:8080/readyz,messaging=http://100.115.243.86:4000/readyz,notifications=http://100.119.82.41:4000/readyz,servers=http://100.66.177.64:8080/readyz,signaling-2=http://100.123.136.59:4000/readyz,signaling-3=http://100.64.221.7:4000/readyz
+```
+
 
 Configurar `/readyz` como health check de Render. Antes del primer deploy y
 cada vez que cambie el esquema, ejecutar las migraciones contra la base de
