@@ -40,6 +40,11 @@ func main() {
 	repo := repository.New(db)
 	authorizer := service.NewProjectionAuthorizer(repo, strings.Split(cfg.staffUserIDs, ","))
 	svc := service.New(repo, authorizer)
+	var publisher events.Publisher
+	if cfg.rabbitURL != "" {
+		publisher = events.NewAMQPPublisher(cfg.rabbitURL)
+		defer publisher.Close()
+	}
 	healthMonitor := health.NewMonitor(
 		health.ParseTargets(cfg.healthChecks),
 		&http.Client{Timeout: cfg.healthTimeout},
@@ -47,7 +52,7 @@ func main() {
 		cfg.healthFailureThreshold,
 		cfg.healthRecoveryThreshold,
 	)
-	h := handler.New(svc, repo, healthMonitor)
+	h := handler.New(svc, repo, healthMonitor, publisher)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -3,10 +3,12 @@ package handler
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/discordia-grupo01/metrics/internal/events"
 	"github.com/discordia-grupo01/metrics/internal/health"
 	"github.com/discordia-grupo01/metrics/internal/middleware"
 	"github.com/discordia-grupo01/metrics/internal/model"
@@ -17,13 +19,14 @@ import (
 )
 
 type Handler struct {
-	service *service.Service
-	repo    *repository.Repository
-	health  *health.Monitor
+	service   *service.Service
+	repo      *repository.Repository
+	health    *health.Monitor
+	publisher events.Publisher
 }
 
-func New(svc *service.Service, repo *repository.Repository, monitor *health.Monitor) *Handler {
-	return &Handler{service: svc, repo: repo, health: monitor}
+func New(svc *service.Service, repo *repository.Repository, monitor *health.Monitor, publisher events.Publisher) *Handler {
+	return &Handler{service: svc, repo: repo, health: monitor, publisher: publisher}
 }
 
 func (h *Handler) ServiceHealth(c *gin.Context) {
@@ -132,6 +135,7 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 	if h.respondError(c, err) {
 		return
 	}
+	h.publishStatusChanged(c, input.PlatformStatus)
 	c.JSON(http.StatusCreated, incident)
 }
 
@@ -152,7 +156,28 @@ func (h *Handler) ResolveIncident(c *gin.Context) {
 	if h.respondError(c, h.repo.ResolveIncident(c, c.Param("id"))) {
 		return
 	}
+	status := model.PlatformOperational
+	incidents, err := h.repo.Incidents(c, true)
+	if err != nil {
+		log.Printf("platform status lookup after resolving incident failed: %v", err)
+		c.Error(err)
+	} else if len(incidents) > 0 {
+		status = incidents[0].PlatformStatus
+	}
+	if err == nil {
+		h.publishStatusChanged(c, status)
+	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h *Handler) publishStatusChanged(c *gin.Context, status string) {
+	if h.publisher == nil {
+		return
+	}
+	if err := h.publisher.PublishStatusChanged(c.Request.Context(), status, time.Now().UTC()); err != nil {
+		log.Printf("platform status notification failed: %v", err)
+		c.Error(err)
+	}
 }
 
 func (h *Handler) period(c *gin.Context) (from, to time.Time, ok bool) {

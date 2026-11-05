@@ -149,6 +149,12 @@ resumen de servidor e incluye:
 - `POST /v1/metrics/incidents/{id}/resolve`: resuelve un incidente activo;
   requiere staff.
 
+Al publicar o resolver un incidente, metrics publica `platform.status_changed`
+en RabbitMQ cuando `RABBITMQ_URL` está configurada. El payload solo contiene el
+estado actual y un `event_id`; notifications lo convierte en un broadcast
+`status_changed` sobre el tópico `platform` con `refetch: true`. El evento es
+un aviso y no reemplaza `GET /v1/status`, que sigue siendo la fuente de verdad.
+
 Un incidente contiene título, descripción, servicios afectados y el estado de
 plataforma que representa (`degraded` por defecto o `maintenance`). Al
 resolverlo deja de aparecer en `GET /v1/status`; si no quedan incidentes
