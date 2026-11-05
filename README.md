@@ -244,11 +244,27 @@ Configurar estas variables en Render:
 | `RABBITMQ_URL` | URL AMQP del RabbitMQ desplegado; dejar vacía solo si no se consumirán eventos |
 | `EVENTS_EXCHANGE` | `discordia.events` |
 | `EVENTS_QUEUE` | `metrics` |
+| `HEALTH_CHECKS` | Ver configuración recomendada debajo |
+| `HEALTH_CHECK_INTERVAL` | `30s` |
+| `HEALTH_CHECK_TIMEOUT` | `3s` |
+| `HEALTH_FAILURE_THRESHOLD` | `2` |
+| `HEALTH_RECOVERY_THRESHOLD` | `2` |
 | `STAFF_USER_IDS` | UUIDs de staff separados por comas |
 
 No es necesario configurar `JWT_SECRET`: la validación del JWT pertenece a
 Kong y metrics recibe la identidad ya validada. Tampoco configurar
 `USER_ID_HEADER` en producción, porque permite suplantar la identidad.
+
+#### Health checks entre hosts
+
+Metrics consulta los endpoints internos por Tailscale. La ruta canónica del
+repositorio es `/readyz` (no `/healthz`); todos los servicios actualmente
+implementados exponen esa ruta. Configurar en Render:
+
+```text
+HEALTH_CHECKS=backend=http://100.76.97.63:8080/readyz,messaging=http://100.115.243.86:4000/readyz,notifications=http://100.119.82.41:4000/readyz,servers=http://100.66.177.64:8080/readyz,signaling-2=http://100.123.136.59:4000/readyz,signaling-3=http://100.64.221.7:4000/readyz
+```
+
 
 Configurar `/readyz` como health check de Render. Antes del primer deploy y
 cada vez que cambie el esquema, ejecutar las migraciones contra la base de
