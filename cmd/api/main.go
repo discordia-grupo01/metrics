@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -20,7 +19,8 @@ import (
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
 	"github.com/gin-gonic/gin"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -28,10 +28,14 @@ func main() {
 	if cfg.environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	db, err := sql.Open("pgx", cfg.databaseURL())
+	connConfig, err := pgx.ParseConfig(cfg.databaseURL())
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Render/Supabase may route connections through a transaction pooler.
+	// Avoid named prepared statements because they are not stable across pooled backends.
+	connConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	db := stdlib.OpenDB(*connConfig)
 	defer db.Close()
 	if err := db.Ping(); err != nil {
 		log.Fatal(err)
