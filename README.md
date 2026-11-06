@@ -295,6 +295,8 @@ Supabase Dashboard > Connect la cadena de conexión adecuada para el entorno de
 Render y guardarla en Render como `DATABASE_URL`. Usar el pooler recomendado
 por Supabase si el proveedor limita las conexiones directas. La cadena debe
 incluir usuario, contraseña, host, puerto, base y `sslmode=require`.
+El servicio desactiva el cache de prepared statements nombrados para mantener
+compatibilidad con ese pooler.
 
 En este servicio no es necesario configurar `SUPABASE_URL`,
 `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` ni `SUPABASE_JWKS_URL`:
