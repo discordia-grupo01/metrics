@@ -28,6 +28,14 @@ type ServiceStatus struct {
 	ConsecutiveSuccesses int       `json:"-"`
 }
 
+type Transition struct {
+	Service             string
+	PreviousStatus      string
+	Status              string
+	ConsecutiveFailures int
+	OccurredAt          time.Time
+}
+
 type Monitor struct {
 	targets           []Target
 	client            *http.Client
@@ -35,8 +43,13 @@ type Monitor struct {
 	failureThreshold  int
 	recoveryThreshold int
 
-	mu       sync.RWMutex
-	statuses map[string]ServiceStatus
+	mu           sync.RWMutex
+	statuses     map[string]ServiceStatus
+	onTransition func(context.Context, Transition)
+}
+
+func (m *Monitor) SetTransitionHandler(handler func(context.Context, Transition)) {
+	m.onTransition = handler
 }
 
 func NewMonitor(targets []Target, client *http.Client, interval time.Duration, failureThreshold, recoveryThreshold int) *Monitor {
@@ -121,12 +134,13 @@ func (m *Monitor) check(ctx context.Context, target Target) {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	current, ok := m.statuses[target.Name]
 	if !ok {
+		m.mu.Unlock()
 		return
 	}
 	current.LastCheckedAt = time.Now().UTC()
+	previousStatus := current.Status
 	if err != nil {
 		current.ConsecutiveFailures++
 		current.ConsecutiveSuccesses = 0
@@ -143,6 +157,19 @@ func (m *Monitor) check(ctx context.Context, target Target) {
 		}
 	}
 	m.statuses[target.Name] = current
+	m.mu.Unlock()
+
+	if m.onTransition != nil &&
+		current.Status != previousStatus &&
+		(current.Status == StatusDegraded || previousStatus == StatusDegraded) {
+		m.onTransition(ctx, Transition{
+			Service:             target.Name,
+			PreviousStatus:      previousStatus,
+			Status:              current.Status,
+			ConsecutiveFailures: current.ConsecutiveFailures,
+			OccurredAt:          current.LastCheckedAt,
+		})
+	}
 }
 
 func statusError(statusCode int) error {
