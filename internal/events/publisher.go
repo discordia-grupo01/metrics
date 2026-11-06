@@ -14,10 +14,12 @@ import (
 const (
 	platformExchange   = "discordia.events"
 	platformRoutingKey = "platform.status_changed"
+	healthRoutingKey   = "platform.health_changed"
 )
 
 type Publisher interface {
 	PublishStatusChanged(context.Context, string, time.Time) error
+	PublishHealthChanged(context.Context, string, string, string, int, []string, time.Time) error
 	Close()
 }
 
@@ -26,6 +28,22 @@ type AMQPPublisher struct {
 	mu      sync.Mutex
 	conn    *amqp091.Connection
 	channel *amqp091.Channel
+}
+
+func (p *AMQPPublisher) PublishHealthChanged(ctx context.Context, service, previousStatus, status string, failures int, audience []string, occurredAt time.Time) error {
+	body, err := json.Marshal(map[string]any{
+		"event_id":             uuid.NewString(),
+		"occurred_at":          occurredAt.UTC(),
+		"service":              service,
+		"previous_status":      previousStatus,
+		"status":               status,
+		"consecutive_failures": failures,
+		"audience_user_ids":    audience,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal health change event: %w", err)
+	}
+	return p.publish(ctx, healthRoutingKey, body)
 }
 
 func NewAMQPPublisher(url string) *AMQPPublisher {
@@ -41,6 +59,10 @@ func (p *AMQPPublisher) PublishStatusChanged(ctx context.Context, status string,
 	if err != nil {
 		return fmt.Errorf("marshal platform status event: %w", err)
 	}
+	return p.publish(ctx, platformRoutingKey, body)
+}
+
+func (p *AMQPPublisher) publish(ctx context.Context, routingKey string, body []byte) error {
 	channel, err := p.getChannel()
 	if err != nil {
 		return fmt.Errorf("connect to RabbitMQ: %w", err)
@@ -50,13 +72,13 @@ func (p *AMQPPublisher) PublishStatusChanged(ctx context.Context, status string,
 		DeliveryMode: amqp091.Persistent,
 		Body:         body,
 	}
-	if err := channel.PublishWithContext(ctx, platformExchange, platformRoutingKey, false, false, message); err != nil {
+	if err := channel.PublishWithContext(ctx, platformExchange, routingKey, false, false, message); err != nil {
 		p.reset()
 		channel, err = p.getChannel()
 		if err != nil {
 			return fmt.Errorf("reconnect after publish failure: %w", err)
 		}
-		if err := channel.PublishWithContext(ctx, platformExchange, platformRoutingKey, false, false, message); err != nil {
+		if err := channel.PublishWithContext(ctx, platformExchange, routingKey, false, false, message); err != nil {
 			return fmt.Errorf("publish after reconnect: %w", err)
 		}
 	}

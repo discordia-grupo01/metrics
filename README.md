@@ -155,6 +155,13 @@ estado actual y un `event_id`; notifications lo convierte en un broadcast
 `status_changed` sobre el tópico `platform` con `refetch: true`. El evento es
 un aviso y no reemplaza `GET /v1/status`, que sigue siendo la fuente de verdad.
 
+Cuando un health check cruza el umbral hacia `degraded` o se recupera a
+`operational`, metrics publica `platform.health_changed` una sola vez por
+transición. Incluye la audiencia de usuarios staff activa; notifications lo
+envía por sus tópicos privados como `health_check_changed`, para que el
+backoffice muestre la sugerencia y consulte `GET /v1/health/services`. No se
+notifica a usuarios comunes ni se crea un incidente automáticamente.
+
 Un incidente contiene título, descripción, servicios afectados y el estado de
 plataforma que representa (`degraded` por defecto o `maintenance`). Al
 resolverlo deja de aparecer en `GET /v1/status`; si no quedan incidentes

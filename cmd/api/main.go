@@ -52,6 +52,21 @@ func main() {
 		cfg.healthFailureThreshold,
 		cfg.healthRecoveryThreshold,
 	)
+	healthMonitor.SetTransitionHandler(func(ctx context.Context, transition health.Transition) {
+		if publisher == nil || transition.Status == health.StatusOperational && transition.PreviousStatus == health.StatusUnknown {
+			return
+		}
+		staffIDs, err := repo.ActiveStaffIDs(ctx)
+		if err != nil {
+			log.Printf("health staff audience lookup failed: %v", err)
+			return
+		}
+		staffIDs = mergeIDs(staffIDs, strings.Split(cfg.staffUserIDs, ","))
+		if err := publisher.PublishHealthChanged(ctx, transition.Service, transition.PreviousStatus,
+			transition.Status, transition.ConsecutiveFailures, staffIDs, transition.OccurredAt); err != nil {
+			log.Printf("health status notification failed: %v", err)
+		}
+	})
 	h := handler.New(svc, repo, healthMonitor, publisher)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -96,6 +111,25 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+}
+
+func mergeIDs(groups ...[]string) []string {
+	seen := make(map[string]struct{})
+	var result []string
+	for _, group := range groups {
+		for _, id := range group {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 type config struct {
