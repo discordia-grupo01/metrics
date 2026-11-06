@@ -77,9 +77,7 @@ func main() {
 	defer stop()
 	if cfg.rabbitURL != "" {
 		go func() {
-			if err := events.Consume(ctx, cfg.rabbitURL, cfg.exchange, cfg.queue, cfg.adminEventsHMACSecret, repo); err != nil && ctx.Err() == nil {
-				log.Printf("event consumer stopped: %v", err)
-			}
+			consumeEvents(ctx, cfg, repo)
 		}()
 	}
 	go healthMonitor.Start(ctx)
@@ -115,6 +113,32 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+}
+
+func consumeEvents(ctx context.Context, cfg config, repo *repository.Repository) {
+	const retryDelay = 2 * time.Second
+
+	for {
+		err := events.Consume(ctx, cfg.rabbitURL, cfg.exchange, cfg.queue, cfg.adminEventsHMACSecret, repo)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			log.Printf("event consumer stopped: %v; retrying in %s", err, retryDelay)
+		} else {
+			log.Printf("event consumer disconnected; retrying in %s", retryDelay)
+		}
+
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
 }
 
 func mergeIDs(groups ...[]string) []string {
