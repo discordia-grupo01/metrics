@@ -117,6 +117,24 @@ func (r *Repository) IsStaff(ctx context.Context, userID string) (bool, error) {
 	return active, err
 }
 
+func (r *Repository) ActiveStaffIDs(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT user_id FROM staff_members WHERE active = true`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (r *Repository) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {
 	var allowed bool
 	err := r.db.QueryRowContext(ctx, `SELECT EXISTS (

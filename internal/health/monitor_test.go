@@ -42,6 +42,41 @@ func TestMonitorRequiresConsecutiveFailures(t *testing.T) {
 	}
 }
 
+func TestMonitorNotifiesDegradedAndRecoveryTransitions(t *testing.T) {
+	fail := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if fail {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var transitions []Transition
+	monitor := NewMonitor([]Target{{Name: "servers", URL: server.URL}}, server.Client(), time.Minute, 2, 2)
+	monitor.SetTransitionHandler(func(_ context.Context, transition Transition) {
+		transitions = append(transitions, transition)
+	})
+	ctx := context.Background()
+
+	monitor.check(ctx, monitor.targets[0])
+	monitor.check(ctx, monitor.targets[0])
+	fail = false
+	monitor.check(ctx, monitor.targets[0])
+	monitor.check(ctx, monitor.targets[0])
+
+	if len(transitions) != 2 {
+		t.Fatalf("transitions = %#v, want degraded and operational", transitions)
+	}
+	if transitions[0].PreviousStatus != StatusUnknown || transitions[0].Status != StatusDegraded {
+		t.Fatalf("degraded transition = %#v", transitions[0])
+	}
+	if transitions[1].PreviousStatus != StatusDegraded || transitions[1].Status != StatusOperational {
+		t.Fatalf("recovery transition = %#v", transitions[1])
+	}
+}
+
 func TestParseTargets(t *testing.T) {
 	targets := ParseTargets("servers=http://servers:8080/readyz, bad, messaging=http://messaging:4000/readyz")
 	if len(targets) != 2 || targets[0].Name != "servers" || targets[1].Name != "messaging" {
