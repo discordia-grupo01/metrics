@@ -3,13 +3,13 @@ package handler
 import (
 	"context"
 	"errors"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/discordia-grupo01/metrics/internal/events"
 	"github.com/discordia-grupo01/metrics/internal/health"
+	"github.com/discordia-grupo01/metrics/internal/logging"
 	"github.com/discordia-grupo01/metrics/internal/middleware"
 	"github.com/discordia-grupo01/metrics/internal/model"
 	"github.com/discordia-grupo01/metrics/internal/repository"
@@ -159,7 +159,7 @@ func (h *Handler) ResolveIncident(c *gin.Context) {
 	status := model.PlatformOperational
 	incidents, err := h.repo.Incidents(c, true)
 	if err != nil {
-		log.Printf("platform status lookup after resolving incident failed: %v", err)
+		logging.Errorf("platform status lookup after resolving incident failed: %v", err)
 		c.Error(err)
 	} else if len(incidents) > 0 {
 		status = incidents[0].PlatformStatus
@@ -175,7 +175,7 @@ func (h *Handler) publishStatusChanged(c *gin.Context, status string) {
 		return
 	}
 	if err := h.publisher.PublishStatusChanged(c.Request.Context(), status, time.Now().UTC()); err != nil {
-		log.Printf("platform status notification failed: %v", err)
+		logging.Errorf("platform status notification failed: %v", err)
 		c.Error(err)
 	}
 }
