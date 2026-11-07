@@ -18,6 +18,7 @@ import (
 	"github.com/discordia-grupo01/metrics/internal/middleware"
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
+	"github.com/discordia-grupo01/metrics/internal/telemetry"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -30,6 +31,16 @@ func main() {
 	if cfg.environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	shutdownTelemetry, err := telemetry.Setup(context.Background(), "metrics")
+	if err != nil {
+		logging.Fatalf("telemetry: %v", err)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTelemetry(flushCtx)
+	}()
+
 	connConfig, err := pgx.ParseConfig(cfg.databaseURL())
 	if err != nil {
 		logging.Fatalf("%v", err)
@@ -37,6 +48,7 @@ func main() {
 	// Render/Supabase may route connections through a transaction pooler.
 	// Avoid named prepared statements because they are not stable across pooled backends.
 	connConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	connConfig.Tracer = telemetry.PgxTracer{}
 	db := stdlib.OpenDB(*connConfig)
 	defer db.Close()
 	if err := db.Ping(); err != nil {
@@ -85,7 +97,7 @@ func main() {
 	go healthMonitor.Start(ctx)
 
 	router := gin.New()
-	router.Use(logging.Middleware(), logging.Recovery())
+	router.Use(telemetry.Middleware(), logging.Middleware(), logging.Recovery())
 	router.GET("/livez", func(c *gin.Context) { c.Status(http.StatusOK) })
 	router.GET("/readyz", func(c *gin.Context) {
 		if err := db.PingContext(c); err != nil {
