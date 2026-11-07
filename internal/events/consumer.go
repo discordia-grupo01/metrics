@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/discordia-grupo01/metrics/internal/events/deadletter"
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/google/uuid"
 	"github.com/rabbitmq/amqp091-go"
@@ -58,6 +59,12 @@ func Consume(ctx context.Context, url, exchange, queue, staffEventSecret string,
 			return err
 		}
 	}
+	retrier, err := deadletter.New(connection, queue, deadletter.DefaultPolicy())
+	if err != nil {
+		return err
+	}
+	defer retrier.Close()
+
 	deliveries, err := channel.Consume(queue, "metrics", false, false, false, false, nil)
 	if err != nil {
 		return err
@@ -72,11 +79,14 @@ func Consume(ctx context.Context, url, exchange, queue, staffEventSecret string,
 			}
 			if err := handle(ctx, repo, delivery.RoutingKey, delivery.Body, staffEventSecret); err != nil {
 				log.Printf("metrics event %s failed: %v", delivery.RoutingKey, err)
-				invalid := isInvalid(err)
-				_ = delivery.Nack(false, !invalid)
+				if isInvalid(err) {
+					_ = delivery.Nack(false, false)
+					continue
+				}
+				retrier.Settle(ctx, delivery, true)
 				continue
 			}
-			_ = delivery.Ack(false)
+			retrier.Settle(ctx, delivery, false)
 		}
 	}
 }
