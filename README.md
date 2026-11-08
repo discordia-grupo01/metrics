@@ -53,7 +53,7 @@ Usar [.env.example](.env.example) como plantilla.
 | `STAFF_USER_IDS` | vacío | Bootstrap/fallback temporal de UUIDs de staff. La fuente principal son los eventos firmados de `admin`. |
 | `ADMIN_EVENTS_HMAC_SECRET` | vacío | Secreto compartido con `admin` para validar cambios de staff recibidos por RabbitMQ. |
 | `USER_ID_HEADER` | vacío | Header de identidad para desarrollo local. No configurarlo en producción. |
-| `HEALTH_CHECKS` | vacío | Lista separada por comas de `servicio=URL/readyz` que metrics consulta para mostrar el estado operativo. |
+| `HEALTH_CHECKS` | vacío | Lista separada por comas de `servicio=URL` que metrics consulta para mostrar el estado operativo. Las URLs deben ser las rutas públicas de Kong (`/health/identify`, `/health/servers`, `/health/messaging`, `/health/notifications` y `/health/voice`), no las direcciones privadas de los servicios. |
 | `HEALTH_CHECK_INTERVAL` | `30s` | Intervalo entre consultas de health checks. |
 | `HEALTH_CHECK_TIMEOUT` | `3s` | Timeout de cada consulta. |
 | `HEALTH_FAILURE_THRESHOLD` | `2` | Fallos consecutivos necesarios para marcar un servicio como `degraded`. |
@@ -310,14 +310,15 @@ No es necesario configurar `JWT_SECRET`: la validación del JWT pertenece a
 Kong y metrics recibe la identidad ya validada. Tampoco configurar
 `USER_ID_HEADER` en producción, porque permite suplantar la identidad.
 
-#### Health checks entre hosts
+#### Health checks a través de Kong
 
-Metrics consulta los endpoints internos por Tailscale. La ruta canónica del
-repositorio es `/readyz` (no `/healthz`); todos los servicios actualmente
-implementados exponen esa ruta. Configurar en Render:
+Metrics consulta los health checks públicos del gateway, no las IPs privadas
+por Tailscale. La ruta canónica interna sigue siendo `/readyz` (no
+`/healthz`); Kong publica rutas dedicadas que conservan ese path al reenviar.
+Configurar en Render reemplazando `<DOMAIN>` por el dominio público de Kong:
 
 ```text
-HEALTH_CHECKS=backend=http://100.76.97.63:8080/readyz,messaging=http://100.115.243.86:4000/readyz,notifications=http://100.119.82.41:4000/readyz,servers=http://100.66.177.64:8080/readyz,signaling-2=http://100.123.136.59:4000/readyz,signaling-3=http://100.64.221.7:4000/readyz
+HEALTH_CHECKS=identify=https://<DOMAIN>/health/identify,servers=https://<DOMAIN>/health/servers,messaging=https://<DOMAIN>/health/messaging,notifications=https://<DOMAIN>/health/notifications,voice=https://<DOMAIN>/health/voice
 ```
 
 
