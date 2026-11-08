@@ -26,6 +26,7 @@ import (
 
 func main() {
 	logging.MustSetup("metrics")
+	defer logging.Flush()
 
 	cfg := loadConfig()
 	if cfg.environment == "production" {
