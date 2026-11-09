@@ -83,3 +83,50 @@ func TestParseTargets(t *testing.T) {
 		t.Fatalf("targets = %#v", targets)
 	}
 }
+
+// Zero or negative settings fall back to the defaults; positive ones are kept.
+func TestNewMonitorDefaults(t *testing.T) {
+	for _, value := range []int{0, -1} {
+		m := NewMonitor(nil, nil, time.Duration(value), value, value)
+		if m.client.Timeout != 3*time.Second {
+			t.Errorf("default client timeout = %v, want 3s", m.client.Timeout)
+		}
+		if m.interval != 30*time.Second || m.failureThreshold != 2 || m.recoveryThreshold != 2 {
+			t.Errorf("settings %d: interval=%v failure=%d recovery=%d, want the defaults", value, m.interval, m.failureThreshold, m.recoveryThreshold)
+		}
+	}
+	m := NewMonitor(nil, nil, time.Nanosecond, 1, 1)
+	if m.interval != time.Nanosecond || m.failureThreshold != 1 || m.recoveryThreshold != 1 {
+		t.Errorf("interval=%v failure=%d recovery=%d, want the given values", m.interval, m.failureThreshold, m.recoveryThreshold)
+	}
+}
+
+// A target without name or without URL is not monitored.
+func TestNewMonitorSkipsIncompleteTargets(t *testing.T) {
+	m := NewMonitor([]Target{{Name: "", URL: "http://x/readyz"}, {Name: "servers", URL: "http://servers/readyz"}, {Name: "billing", URL: ""}, {Name: "identify", URL: "http://identify/readyz"}}, nil, time.Minute, 2, 2)
+	got := m.Snapshot()
+	if len(got) != 2 || got[0].Name != "servers" || got[1].Name != "identify" {
+		t.Errorf("snapshot = %+v, want servers and identify", got)
+	}
+}
+
+func TestParseTargetsSkipsEntriesWithoutNameOrURL(t *testing.T) {
+	targets := ParseTargets("servers=http://servers/readyz,=http://x/readyz,billing=")
+	if len(targets) != 1 || targets[0].Name != "servers" {
+		t.Errorf("targets = %+v, want only servers", targets)
+	}
+}
+
+// Every 2xx is healthy, and nothing else.
+func TestStatusErrorAcceptsOnly2xx(t *testing.T) {
+	for _, code := range []int{http.StatusOK, 299} {
+		if err := statusError(code); err != nil {
+			t.Errorf("%d: %v, want healthy", code, err)
+		}
+	}
+	for _, code := range []int{199, http.StatusMultipleChoices, http.StatusServiceUnavailable} {
+		if statusError(code) == nil {
+			t.Errorf("%d should count as a failure", code)
+		}
+	}
+}

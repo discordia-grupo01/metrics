@@ -1,0 +1,52 @@
+Starting...
+Gathering coverage... done in 459.25215ms
+      KILLED INVERT_BITWISE at monitor.go:57:12
+      KILLED CONDITIONALS_BOUNDARY at monitor.go:59:14
+      KILLED ARITHMETIC_BASE at monitor.go:57:36
+      KILLED ARITHMETIC_BASE at monitor.go:60:17
+      KILLED CONDITIONALS_BOUNDARY at monitor.go:62:22
+      KILLED CONDITIONALS_NEGATION at monitor.go:62:22
+      KILLED CONDITIONALS_BOUNDARY at monitor.go:65:23
+      KILLED CONDITIONALS_NEGATION at monitor.go:65:23
+      KILLED INVERT_LOGICAL at monitor.go:70:24
+      KILLED CONDITIONALS_NEGATION at monitor.go:56:12
+      KILLED CONDITIONALS_NEGATION at monitor.go:59:14
+      KILLED INVERT_BITWISE at monitor.go:75:9
+      KILLED INVERT_LOOPCTRL at monitor.go:71:4
+      KILLED CONDITIONALS_NEGATION at monitor.go:128:17
+      KILLED CONDITIONALS_NEGATION at monitor.go:70:18
+      KILLED CONDITIONALS_NEGATION at monitor.go:70:38
+      KILLED CONDITIONALS_BOUNDARY at monitor.go:147:34
+      KILLED CONDITIONALS_NEGATION at monitor.go:126:9
+      KILLED CONDITIONALS_NEGATION at monitor.go:147:34
+      KILLED CONDITIONALS_NEGATION at monitor.go:153:21
+      KILLED CONDITIONALS_NEGATION at monitor.go:144:9
+      KILLED INVERT_LOGICAL at monitor.go:155:46
+      KILLED INCREMENT_DECREMENT at monitor.go:145:30
+      KILLED CONDITIONALS_BOUNDARY at monitor.go:155:78
+      KILLED INVERT_LOGICAL at monitor.go:163:36
+      KILLED CONDITIONALS_NEGATION at monitor.go:155:78
+      KILLED INCREMENT_DECREMENT at monitor.go:152:31
+      KILLED INVERT_LOGICAL at monitor.go:162:27
+      KILLED CONDITIONALS_NEGATION at monitor.go:162:20
+      KILLED CONDITIONALS_NEGATION at monitor.go:163:18
+      KILLED INVERT_LOGICAL at monitor.go:164:37
+      KILLED CONDITIONALS_NEGATION at monitor.go:164:19
+      KILLED CONDITIONALS_NEGATION at monitor.go:155:28
+      KILLED CONDITIONALS_NEGATION at monitor.go:164:55
+      KILLED CONDITIONALS_BOUNDARY at monitor.go:176:47
+      KILLED INVERT_LOGICAL at monitor.go:176:33
+      KILLED CONDITIONALS_BOUNDARY at monitor.go:176:16
+      KILLED CONDITIONALS_NEGATION at monitor.go:176:16
+      KILLED CONDITIONALS_NEGATION at monitor.go:186:19
+      KILLED INVERT_LOOPCTRL at monitor.go:187:4
+      KILLED INVERT_LOGICAL at monitor.go:190:17
+      KILLED CONDITIONALS_NEGATION at monitor.go:176:47
+      KILLED CONDITIONALS_NEGATION at monitor.go:190:11
+      KILLED CONDITIONALS_NEGATION at monitor.go:190:24
+
+Mutation testing completed in 12 seconds 155 milliseconds
+Killed: 44, Lived: 0, Not covered: 0
+Timed out: 0, Not viable: 0, Skipped: 0
+Test efficacy: 100.00%
+Mutator coverage: 100.00%

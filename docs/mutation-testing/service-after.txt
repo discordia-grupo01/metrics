@@ -1,0 +1,41 @@
+Starting...
+Gathering coverage... done in 405.2506ms
+      KILLED INVERT_BITWISE at service.go:36:9
+      KILLED CONDITIONALS_NEGATION at service.go:50:38
+ NOT COVERED CONDITIONALS_NEGATION at service.go:61:9
+ NOT COVERED CONDITIONALS_NEGATION at service.go:66:9
+      KILLED CONDITIONALS_NEGATION at service.go:43:58
+      KILLED CONDITIONALS_NEGATION at service.go:40:38
+      KILLED CONDITIONALS_NEGATION at service.go:53:58
+      KILLED CONDITIONALS_BOUNDARY at service.go:74:18
+      KILLED CONDITIONALS_NEGATION at service.go:74:18
+      KILLED ARITHMETIC_BASE at service.go:74:23
+      KILLED ARITHMETIC_BASE at service.go:77:34
+      KILLED CONDITIONALS_NEGATION at service.go:82:9
+      KILLED CONDITIONALS_NEGATION at service.go:92:38
+      KILLED ARITHMETIC_BASE at service.go:100:26
+      KILLED ARITHMETIC_BASE at service.go:100:21
+      KILLED INVERT_NEGATIVES at service.go:100:17
+      KILLED ARITHMETIC_BASE at service.go:100:17
+      KILLED CONDITIONALS_NEGATION at service.go:102:40
+      KILLED CONDITIONALS_NEGATION at service.go:105:9
+      KILLED CONDITIONALS_NEGATION at service.go:106:39
+      KILLED INVERT_LOGICAL at service.go:110:36
+      KILLED INVERT_LOGICAL at service.go:110:16
+      KILLED CONDITIONALS_NEGATION at service.go:110:9
+      KILLED CONDITIONALS_BOUNDARY at service.go:110:52
+      KILLED CONDITIONALS_NEGATION at service.go:110:52
+      KILLED ARITHMETIC_BASE at service.go:110:57
+      KILLED ARITHMETIC_BASE at service.go:110:60
+      KILLED INVERT_BITWISE at service.go:143:9
+      KILLED CONDITIONALS_NEGATION at service.go:120:104
+      KILLED CONDITIONALS_NEGATION at service.go:124:116
+      KILLED CONDITIONALS_NEGATION at service.go:139:44
+      KILLED INVERT_LOGICAL at service.go:148:16
+      KILLED CONDITIONALS_NEGATION at service.go:148:9
+
+Mutation testing completed in 4 seconds 102 milliseconds
+Killed: 31, Lived: 0, Not covered: 2
+Timed out: 0, Not viable: 0, Skipped: 0
+Test efficacy: 100.00%
+Mutator coverage: 93.94%
