@@ -32,6 +32,19 @@ func TestParsePeriodRejectsInvalidOrTooLongRanges(t *testing.T) {
 	}
 }
 
+// The maximum range is 366 days: exactly that is allowed, a second more isn't.
+func TestParsePeriodAllowsExactlyTheMaximumRange(t *testing.T) {
+	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxTo := from.Add(366 * 24 * time.Hour)
+	if _, _, err := ParsePeriod(url.Values{"from": {from.Format(time.RFC3339)}, "to": {maxTo.Format(time.RFC3339)}}, time.Now()); err != nil {
+		t.Errorf("366 days: %v", err)
+	}
+	overTo := maxTo.Add(time.Second)
+	if _, _, err := ParsePeriod(url.Values{"from": {from.Format(time.RFC3339)}, "to": {overTo.Format(time.RFC3339)}}, time.Now()); err == nil {
+		t.Error("366 days and a second should be rejected")
+	}
+}
+
 func TestValidateIDRejectsMalformedUUID(t *testing.T) {
 	if err := validateID("test"); !strings.Contains(err.Error(), "invalid id") {
 		t.Fatalf("error = %v, want invalid id", err)

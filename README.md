@@ -380,6 +380,9 @@ Para ejecutar solamente el binario contra dependencias ya levantadas:
 make run
 ```
 
+Mutation testing de `internal/service` e `internal/health` (`make mutation`,
+menos de un minuto): ver [`docs/mutation-testing`](docs/mutation-testing/README.md).
+
 ## Estructura
 
 ```text
