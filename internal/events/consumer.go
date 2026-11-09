@@ -7,12 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/discordia-grupo01/metrics/internal/events/deadletter"
+	"github.com/discordia-grupo01/metrics/internal/logging"
 	"github.com/discordia-grupo01/metrics/internal/repository"
+	"github.com/discordia-grupo01/metrics/internal/telemetry"
 	"github.com/google/uuid"
 	"github.com/rabbitmq/amqp091-go"
 )
@@ -77,16 +78,20 @@ func Consume(ctx context.Context, url, exchange, queue, staffEventSecret string,
 			if !ok {
 				return nil
 			}
-			if err := handle(ctx, repo, delivery.RoutingKey, delivery.Body, staffEventSecret); err != nil {
-				log.Printf("metrics event %s failed: %v", delivery.RoutingKey, err)
+			spanCtx, end := telemetry.StartConsumer(ctx, queue, delivery)
+			if err := handle(spanCtx, repo, delivery.RoutingKey, delivery.Body, staffEventSecret); err != nil {
+				logging.Errorf("metrics event %s failed: %v", delivery.RoutingKey, err)
 				if isInvalid(err) {
 					_ = delivery.Nack(false, false)
+					end(true)
 					continue
 				}
-				retrier.Settle(ctx, delivery, true)
+				retrier.Settle(spanCtx, delivery, true)
+				end(true)
 				continue
 			}
-			retrier.Settle(ctx, delivery, false)
+			retrier.Settle(spanCtx, delivery, false)
+			end(false)
 		}
 	}
 }

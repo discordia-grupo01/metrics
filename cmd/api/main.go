@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,30 +14,46 @@ import (
 	"github.com/discordia-grupo01/metrics/internal/events"
 	"github.com/discordia-grupo01/metrics/internal/handler"
 	"github.com/discordia-grupo01/metrics/internal/health"
+	"github.com/discordia-grupo01/metrics/internal/logging"
 	"github.com/discordia-grupo01/metrics/internal/middleware"
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
+	"github.com/discordia-grupo01/metrics/internal/telemetry"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
+	logging.MustSetup("metrics")
+	defer logging.Flush()
+
 	cfg := loadConfig()
 	if cfg.environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	shutdownTelemetry, err := telemetry.Setup(context.Background(), "metrics")
+	if err != nil {
+		logging.Fatalf("telemetry: %v", err)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTelemetry(flushCtx)
+	}()
+
 	connConfig, err := pgx.ParseConfig(cfg.databaseURL())
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatalf("%v", err)
 	}
 	// Render/Supabase may route connections through a transaction pooler.
 	// Avoid named prepared statements because they are not stable across pooled backends.
 	connConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	connConfig.Tracer = telemetry.PgxTracer{}
 	db := stdlib.OpenDB(*connConfig)
 	defer db.Close()
 	if err := db.Ping(); err != nil {
-		log.Fatal(err)
+		logging.Fatalf("%v", err)
 	}
 
 	repo := repository.New(db)
@@ -62,13 +77,13 @@ func main() {
 		}
 		staffIDs, err := repo.ActiveStaffIDs(ctx)
 		if err != nil {
-			log.Printf("health staff audience lookup failed: %v", err)
+			logging.Errorf("health staff audience lookup failed: %v", err)
 			return
 		}
 		staffIDs = mergeIDs(staffIDs, strings.Split(cfg.staffUserIDs, ","))
 		if err := publisher.PublishHealthChanged(ctx, transition.Service, transition.PreviousStatus,
 			transition.Status, transition.ConsecutiveFailures, staffIDs, transition.OccurredAt); err != nil {
-			log.Printf("health status notification failed: %v", err)
+			logging.Errorf("health status notification failed: %v", err)
 		}
 	})
 	h := handler.New(svc, repo, healthMonitor, publisher)
@@ -83,7 +98,7 @@ func main() {
 	go healthMonitor.Start(ctx)
 
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(telemetry.Middleware(), logging.Middleware(), logging.Recovery())
 	router.GET("/livez", func(c *gin.Context) { c.Status(http.StatusOK) })
 	router.GET("/readyz", func(c *gin.Context) {
 		if err := db.PingContext(c); err != nil {
@@ -106,7 +121,7 @@ func main() {
 	server := &http.Server{Addr: cfg.host + ":" + cfg.port, Handler: router}
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
+			logging.Fatalf("%v", err)
 		}
 	}()
 	<-ctx.Done()
@@ -124,9 +139,9 @@ func consumeEvents(ctx context.Context, cfg config, repo *repository.Repository)
 			return
 		}
 		if err != nil {
-			log.Printf("event consumer stopped: %v; retrying in %s", err, retryDelay)
+			logging.Warnf("event consumer stopped: %v; retrying in %s", err, retryDelay)
 		} else {
-			log.Printf("event consumer disconnected; retrying in %s", retryDelay)
+			logging.Warnf("event consumer disconnected; retrying in %s", retryDelay)
 		}
 
 		timer := time.NewTimer(retryDelay)
@@ -192,7 +207,7 @@ func durationEnv(key string, fallback time.Duration) time.Duration {
 		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
 			return parsed
 		}
-		log.Printf("invalid %s=%q, using %s", key, value, fallback)
+		logging.Warnf("invalid %s=%q, using %s", key, value, fallback)
 	}
 	return fallback
 }
@@ -203,7 +218,7 @@ func intEnv(key string, fallback int) int {
 		if _, err := fmt.Sscanf(value, "%d", &parsed); err == nil && parsed > 0 {
 			return parsed
 		}
-		log.Printf("invalid %s=%q, using %d", key, value, fallback)
+		logging.Warnf("invalid %s=%q, using %d", key, value, fallback)
 	}
 	return fallback
 }

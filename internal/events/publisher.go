@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rabbitmq/amqp091-go"
+
+	"github.com/discordia-grupo01/metrics/internal/telemetry"
 )
 
 const (
@@ -71,6 +73,7 @@ func (p *AMQPPublisher) publish(ctx context.Context, routingKey string, body []b
 		ContentType:  "application/json",
 		DeliveryMode: amqp091.Persistent,
 		Body:         body,
+		Headers:      telemetry.InjectAMQP(ctx, nil),
 	}
 	if err := channel.PublishWithContext(ctx, platformExchange, routingKey, false, false, message); err != nil {
 		p.reset()
