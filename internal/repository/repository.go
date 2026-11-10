@@ -135,27 +135,6 @@ func (r *Repository) ActiveStaffIDs(ctx context.Context) ([]string, error) {
 	return ids, rows.Err()
 }
 
-func (r *Repository) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {
-	var allowed bool
-	err := r.db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1
-		FROM metric_servers s
-		WHERE s.server_id = $1 AND s.deleted_at IS NULL
-		AND (
-			EXISTS (SELECT 1 FROM metric_owners o WHERE o.server_id = s.server_id AND o.owner_id = $2)
-			OR EXISTS (
-				SELECT 1
-				FROM metric_member_roles mr
-				JOIN LATERAL unnest(mr.role_ids) assigned(role_id) ON true
-				JOIN metric_roles r ON r.server_id = mr.server_id AND r.role_id = assigned.role_id
-				WHERE mr.server_id = s.server_id AND mr.user_id = $2
-					AND r.is_admin AND NOT r.deleted
-			)
-		)
-	)`, serverID, userID).Scan(&allowed)
-	return allowed, err
-}
-
 func contains(values []string, wanted string) bool {
 	for _, value := range values {
 		if value == wanted {

@@ -23,7 +23,6 @@ var (
 )
 
 type Authorizer interface {
-	CanAdministerServer(context.Context, string, string) (bool, error)
 	IsStaff(context.Context, string) bool
 }
 
@@ -40,7 +39,7 @@ func (s *Service) ServerSummary(ctx context.Context, serverID, userID string, fr
 	if err := validateID(serverID); err != nil {
 		return model.ServerSummary{}, err
 	}
-	if err := s.authorizeServer(ctx, serverID, userID); err != nil {
+	if err := s.authorizeStaff(ctx, userID); err != nil {
 		return model.ServerSummary{}, err
 	}
 	return s.repo.Summary(ctx, serverID, from, to)
@@ -50,7 +49,7 @@ func (s *Service) ServerGrowth(ctx context.Context, serverID, userID string, fro
 	if err := validateID(serverID); err != nil {
 		return nil, err
 	}
-	if err := s.authorizeServer(ctx, serverID, userID); err != nil {
+	if err := s.authorizeStaff(ctx, userID); err != nil {
 		return nil, err
 	}
 	return s.repo.Growth(ctx, serverID, from, to)
@@ -77,12 +76,8 @@ func GranularityFor(from, to time.Time) (string, time.Duration) {
 	return model.GranularityDay, 24 * time.Hour
 }
 
-func (s *Service) authorizeServer(ctx context.Context, serverID, userID string) error {
-	ok, err := s.authorizer.CanAdministerServer(ctx, serverID, userID)
-	if err != nil {
-		return err
-	}
-	if !ok {
+func (s *Service) authorizeStaff(ctx context.Context, userID string) error {
+	if !s.authorizer.IsStaff(ctx, userID) {
 		return ErrForbidden
 	}
 	return nil
@@ -150,8 +145,4 @@ func (a *ProjectionAuthorizer) IsStaff(ctx context.Context, userID string) bool 
 	}
 	_, fallback := a.staff[userID]
 	return fallback
-}
-
-func (a *ProjectionAuthorizer) CanAdministerServer(ctx context.Context, serverID, userID string) (bool, error) {
-	return a.repo.CanAdministerServer(ctx, serverID, userID)
 }

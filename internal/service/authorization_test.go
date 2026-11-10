@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"regexp"
 	"testing"
 	"time"
 
@@ -69,56 +68,10 @@ func TestProjectionAuthorizerAuthorizesProjectedStaff(t *testing.T) {
 	}
 }
 
-func TestProjectionAuthorizerUsesLocalProjection(t *testing.T) {
-	db, mock := newMockDB(t)
-	defer db.Close()
-	repo := repository.New(db)
-	authorizer := NewProjectionAuthorizer(repo, nil)
-
-	query := regexp.QuoteMeta(`SELECT EXISTS (
-		SELECT 1
-		FROM metric_servers s
-		WHERE s.server_id = $1 AND s.deleted_at IS NULL
-		AND (
-			EXISTS (SELECT 1 FROM metric_owners o WHERE o.server_id = s.server_id AND o.owner_id = $2)
-			OR EXISTS (
-				SELECT 1
-				FROM metric_member_roles mr
-				JOIN LATERAL unnest(mr.role_ids) assigned(role_id) ON true
-				JOIN metric_roles r ON r.server_id = mr.server_id AND r.role_id = assigned.role_id
-				WHERE mr.server_id = s.server_id AND mr.user_id = $2
-					AND r.is_admin AND NOT r.deleted
-			)
-		)
-	)`)
-	mock.ExpectQuery(query).WithArgs("server-1", "user-1").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	ok, err := authorizer.CanAdministerServer(context.Background(), "server-1", "user-1")
-	if err != nil || !ok {
-		t.Fatalf("authorization = %v, %v; want true, nil", ok, err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestProjectionAuthorizerReturnsRepositoryErrors(t *testing.T) {
-	db, mock := newMockDB(t)
-	defer db.Close()
-	authorizer := NewProjectionAuthorizer(repository.New(db), nil)
-	expected := errors.New("database unavailable")
-	mock.ExpectQuery("SELECT EXISTS").WillReturnError(expected)
-
-	_, err := authorizer.CanAdministerServer(context.Background(), "server-1", "user-1")
-	if !errors.Is(err, expected) {
-		t.Fatalf("error = %v, want %v", err, expected)
-	}
-}
-
-func TestServiceRejectsUnauthorizedServer(t *testing.T) {
+func TestServiceRejectsNonStaffServerSummary(t *testing.T) {
 	db, _ := newMockDB(t)
 	defer db.Close()
-	svc := New(repository.New(db), staticAuthorizer{allowed: false})
+	svc := New(repository.New(db), staticAuthorizer{staff: false})
 
 	_, err := svc.ServerSummary(context.Background(), "00000000-0000-0000-0000-000000000001", "user-1", testFrom(), testTo())
 	if !errors.Is(err, ErrForbidden) {
@@ -126,15 +79,25 @@ func TestServiceRejectsUnauthorizedServer(t *testing.T) {
 	}
 }
 
-func TestServicePropagatesAuthorizationError(t *testing.T) {
+func TestServiceRejectsNonStaffServerGrowth(t *testing.T) {
 	db, _ := newMockDB(t)
 	defer db.Close()
-	expected := errors.New("projection unavailable")
-	svc := New(repository.New(db), staticAuthorizer{err: expected})
+	svc := New(repository.New(db), staticAuthorizer{staff: false})
 
 	_, err := svc.ServerGrowth(context.Background(), "00000000-0000-0000-0000-000000000001", "user-1", testFrom(), testTo())
-	if !errors.Is(err, expected) {
-		t.Fatalf("error = %v, want %v", err, expected)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("error = %v, want ErrForbidden", err)
+	}
+}
+
+func TestServiceLetsStaffReadServerGrowth(t *testing.T) {
+	db, mock := newMockDB(t)
+	defer db.Close()
+	svc := New(repository.New(db), staticAuthorizer{staff: true})
+	mock.ExpectQuery(".*").WillReturnRows(sqlmock.NewRows([]string{"date", "members"}))
+
+	if _, err := svc.ServerGrowth(context.Background(), "00000000-0000-0000-0000-000000000001", "staff-user", testFrom(), testTo()); errors.Is(err, ErrForbidden) {
+		t.Fatal("expected staff user to be authorized")
 	}
 }
 
@@ -148,15 +111,10 @@ func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 }
 
 type staticAuthorizer struct {
-	allowed bool
-	err     error
+	staff bool
 }
 
-func (a staticAuthorizer) CanAdministerServer(context.Context, string, string) (bool, error) {
-	return a.allowed, a.err
-}
-
-func (staticAuthorizer) IsStaff(context.Context, string) bool { return false }
+func (a staticAuthorizer) IsStaff(context.Context, string) bool { return a.staff }
 
 func testFrom() time.Time { return time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC) }
 func testTo() time.Time   { return time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC) }

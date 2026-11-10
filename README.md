@@ -8,7 +8,7 @@ administradores de servidores y staff de la plataforma.
 
 - Ver métricas de actividad de un servidor.
 - Informar explícitamente cuando un período no tuvo actividad.
-- Restringir las métricas de servidor a usuarios con `ADMINISTRATOR`.
+- Restringir las métricas de servidor a usuarios de staff.
 - Ver métricas globales para usuarios de staff.
 - Consultar la evolución diaria de miembros.
 - Exportar el resumen de métricas de un servidor a CSV.
@@ -65,13 +65,8 @@ En el flujo normal, Kong valida la firma y expiración del JWT y enruta la
 solicitud al servicio. Metrics lee el claim `sub` del bearer token. No confía
 en un `user_id` enviado como parámetro o en el cuerpo.
 
-Para métricas de un servidor, metrics verifica la proyección local de
-servidores, propietario, roles y roles asignados. Se permite únicamente al
-propietario o a un usuario con un rol que tenga `ADMINISTRATOR`. Si la
-proyección aún no conoce el servidor o está atrasada, se deniega el acceso de
-forma segura; no se consulta a `servers` como fallback.
-
-Las métricas globales y la gestión de incidentes consultan una proyección local
+Las métricas de un servidor, las métricas globales y la gestión de incidentes
+son exclusivas del staff de la plataforma y consultan una proyección local
 de los miembros de staff publicada por `admin` mediante eventos RabbitMQ
 firmados. `STAFF_USER_IDS` queda como bootstrap/fallback temporal para no
 bloquear despliegues durante la migración.
