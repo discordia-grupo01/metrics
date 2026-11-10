@@ -202,7 +202,7 @@ func (h *Handler) respondError(c *gin.Context, err error) bool {
 	case errors.Is(err, service.ErrInvalidPeriod):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrForbidden):
-		c.JSON(http.StatusForbidden, gin.H{"error": "administrator permission required"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
 	case errors.Is(err, repository.ErrIncidentNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	default:
