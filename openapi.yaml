@@ -10,10 +10,9 @@ info:
     Kong valida el JWT en el gateway; las rutas /v1/** requieren un bearer
     token válido.
 
-    Las métricas de servidor requieren que el usuario autenticado tenga
-    ADMINISTRATOR en el servidor consultado. Las métricas globales y la gestión
-    de incidentes requieren un usuario de staff según la proyección local
-    sincronizada desde admin.
+    Las métricas de servidor, las métricas globales y la gestión de incidentes
+    requieren un usuario de staff según la proyección local sincronizada desde
+    admin.
   contact:
     name: Equipo Discordia
 servers:
@@ -63,8 +62,7 @@ paths:
       summary: Consultar el resumen de actividad de un servidor
       description: >-
         Devuelve miembros activos, mensajes enviados y nuevos miembros dentro
-        del período solicitado. Requiere el permiso ADMINISTRATOR en el
-        servidor. Si no hubo actividad, responde 200 con contadores en cero y
+        del período solicitado. Requiere rol de staff. Si no hubo actividad, responde 200 con contadores en cero y
         has_activity=false.
       security:
         - BearerAuth: []
@@ -84,7 +82,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: El usuario no tiene permisos de administración.
+          description: El usuario no tiene rol de staff.
           content:
             application/json:
               schema:
@@ -95,7 +93,7 @@ paths:
       summary: Consultar el crecimiento diario de miembros
       description: >-
         Devuelve un punto por día dentro del período. Los días sin cambios se
-        incluyen con el total calculado. Requiere ADMINISTRATOR.
+        incluyen con el total calculado. Requiere rol de staff.
       security:
         - BearerAuth: []
       parameters:
@@ -114,7 +112,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: El usuario no tiene permisos de administración.
+          description: El usuario no tiene rol de staff.
           content:
             application/json:
               schema:
@@ -124,8 +122,8 @@ paths:
       tags: [server-metrics]
       summary: Exportar métricas de un servidor a CSV
       description: >-
-        Genera un archivo CSV con el resumen del período. Requiere
-        ADMINISTRATOR.
+        Genera un archivo CSV con el resumen del período. Requiere rol
+        de staff.
       security:
         - BearerAuth: []
       parameters:
@@ -151,7 +149,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: El usuario no tiene permisos de administración.
+          description: El usuario no tiene rol de staff.
           content:
             application/json:
               schema:

@@ -135,24 +135,6 @@ func TestApplyEventGuardsRoleProjectionAgainstOlderEvents(t *testing.T) {
 	}
 }
 
-func TestCanAdministerServerReturnsProjectionState(t *testing.T) {
-	db, mock := newRepositoryMock(t)
-	defer db.Close()
-	mock.ExpectQuery("SELECT EXISTS").WithArgs("server-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-
-	ok, err := New(db).CanAdministerServer(context.Background(), "server-1", "user-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Fatal("expected a user absent from the local projection to be denied")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func newRepositoryMock(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
