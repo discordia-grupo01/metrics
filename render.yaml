@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: discordia-metrics
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /readyz
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSLMODE
+        value: require
+      - key: RABBITMQ_URL
+        sync: false
+      - key: EVENTS_EXCHANGE
+        value: discordia.events
+      - key: EVENTS_QUEUE
+        value: metrics
+      - key: TS_AUTHKEY
+        sync: false
+      - key: RABBITMQ_TS_HOST
+        sync: false
+      - key: RABBITMQ_TS_PORT
+        value: "5672"
+      - key: RABBITMQ_LOCAL_PORT
+        value: "5672"
+      - key: TS_HOSTNAME
+        value: discordia-metrics-render
+      - key: STAFF_USER_IDS
+        sync: false
+      - key: ADMIN_EVENTS_HMAC_SECRET
+        sync: false
+      - key: HEALTH_CHECKS
+        sync: false
+      - key: HEALTH_CHECK_INTERVAL
+        value: 30s
+      - key: HEALTH_CHECK_TIMEOUT
+        value: 3s
+      - key: HEALTH_FAILURE_THRESHOLD
+        value: "2"
+      - key: HEALTH_RECOVERY_THRESHOLD
+        value: "2"
