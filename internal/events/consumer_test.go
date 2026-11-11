@@ -8,6 +8,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/discordia-grupo01/metrics/internal/repository"
+	"github.com/google/uuid"
 )
 
 func TestHandleRejectsMalformedEvents(t *testing.T) {
@@ -104,6 +108,103 @@ func TestVerifyStaffEventAcceptsSignatureWithoutServerID(t *testing.T) {
 	signature := staffSignature(secret, "admin.staff_member_added", eventID, userID, occurredAt)
 	if !verifyStaffEvent(secret, "admin.staff_member_added", eventID, userID, occurredAt, signature) {
 		t.Fatal("expected valid staff event signature")
+	}
+}
+
+func TestVerifyStaffEventRejectsInvalidInputs(t *testing.T) {
+	occurredAt := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		secret    string
+		signature string
+	}{
+		{name: "missing secret", secret: ""},
+		{name: "missing signature", secret: "secret"},
+		{name: "invalid hex", secret: "secret", signature: "not-hex"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if verifyStaffEvent(test.secret, "admin.staff_member_added", uuid.NewString(), uuid.NewString(), occurredAt, test.signature) {
+				t.Fatal("verifyStaffEvent accepted invalid input")
+			}
+		})
+	}
+}
+
+func TestParseUUIDHelpers(t *testing.T) {
+	id := uuid.New()
+	if parsed := parseUUID(id.String()); parsed == nil || *parsed != id {
+		t.Fatalf("parseUUID = %v, want %s", parsed, id)
+	}
+	if parseUUID("invalid") != nil {
+		t.Fatal("parseUUID accepted invalid UUID")
+	}
+	if _, err := parseRequiredUUID("invalid", "role_id"); err == nil || !isInvalid(err) {
+		t.Fatalf("parseRequiredUUID error = %v, want invalid event", err)
+	}
+	if _, err := parseUUIDs([]string{id.String(), "invalid"}); err == nil || !isInvalid(err) {
+		t.Fatalf("parseUUIDs error = %v, want invalid event", err)
+	}
+}
+
+func TestHandlePersistsMessageProjection(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := repository.New(db)
+	eventID := uuid.New()
+	serverID := uuid.New()
+	authorID := uuid.New()
+	occurredAt := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO metric_events").
+		WithArgs(eventID, "message", &serverID, &authorID, occurredAt).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	body := `{"event_id":"` + eventID.String() + `","occurred_at":"` + occurredAt.Format(time.RFC3339) +
+		`","server_id":"` + serverID.String() + `","author_id":"` + authorID.String() + `"}`
+	if err := handle(context.Background(), repo, "messaging.message_created", []byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHandlePersistsStaffProjectionWithValidSignature(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := repository.New(db)
+	eventID := uuid.New()
+	userID := uuid.New()
+	occurredAt := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	secret := "secret"
+	routingKey := "admin.staff_member_added"
+	signature := staffSignature(secret, routingKey, eventID.String(), userID.String(), occurredAt)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO metric_events").
+		WithArgs(eventID, "staff_member_added", (*uuid.UUID)(nil), &userID, occurredAt).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO staff_members").
+		WithArgs(&userID, true, occurredAt).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	body := `{"event_id":"` + eventID.String() + `","occurred_at":"` + occurredAt.Format(time.RFC3339) +
+		`","user_id":"` + userID.String() + `","signature":"` + signature + `"}`
+	if err := handle(context.Background(), repo, routingKey, []byte(body), secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
