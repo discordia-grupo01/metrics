@@ -33,6 +33,8 @@ jobs:
         run: go build ./...
       - name: Go vet
         run: go vet ./...
+      - name: Validar openapi.yaml
+        run: make openapi
       - name: Go test
         run: go test ./... -cover
       - name: Build de imagen Docker

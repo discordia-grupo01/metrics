@@ -420,6 +420,7 @@ Tailscale correspondiente.
 Desde este módulo:
 
 ```bash
+make openapi
 gofmt -l .
 go vet ./...
 go test ./... -cover
