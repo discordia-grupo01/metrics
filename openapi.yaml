@@ -92,8 +92,9 @@ paths:
       tags: [server-metrics]
       summary: Consultar el crecimiento diario de miembros
       description: >-
-        Devuelve un punto por día dentro del período. Los días sin cambios se
-        incluyen con el total calculado. Requiere rol de staff.
+        Devuelve un punto por cada tramo de 24 h desde `from` (el último
+        termina en `to`), con la cantidad de miembros al cierre del tramo.
+        Los tramos sin cambios se incluyen con el total. Requiere rol de staff.
       security:
         - BearerAuth: []
       parameters:
@@ -459,12 +460,12 @@ components:
             $ref: "#/components/schemas/GrowthPoint"
     GrowthPoint:
       type: object
-      required: [date, members]
+      required: [start, members]
       properties:
-        date:
+        start:
           type: string
-          format: date
-          example: "2026-10-29"
+          format: date-time
+          description: Inicio del tramo, en UTC. El cliente lo muestra en su zona horaria.
         members:
           type: integer
           minimum: 0

@@ -35,8 +35,8 @@ const (
 )
 
 type GrowthPoint struct {
-	Date    string `json:"date"`
-	Members int    `json:"members"`
+	Start   time.Time `json:"start"`
+	Members int       `json:"members"`
 }
 
 type Incident struct {
