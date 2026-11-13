@@ -33,8 +33,18 @@ jobs:
         run: go build ./...
       - name: Go vet
         run: go vet ./...
+      - name: Validar openapi.yaml
+        run: make openapi
       - name: Go test
-        run: go test ./... -cover
+        run: go test ./... -coverpkg=./internal/... -coverprofile=coverage.out
+      - name: Verificar cobertura minima (70%)
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "Cobertura total: ${COVERAGE}%"
+          if awk "BEGIN {exit !($COVERAGE < 70)}"; then
+            echo "::error::Cobertura ${COVERAGE}% por debajo del minimo requerido (70%)"
+            exit 1
+          fi
       - name: Build de imagen Docker
         run: docker build -t discordia-metrics:ci .
       - name: Validar configuración de Docker Compose

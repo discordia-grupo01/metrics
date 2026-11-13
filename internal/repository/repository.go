@@ -166,34 +166,31 @@ func (r *Repository) Summary(ctx context.Context, serverID string, from, to time
 }
 
 func (r *Repository) Growth(ctx context.Context, serverID string, from, to time.Time) ([]model.GrowthPoint, error) {
-	rows, err := r.db.QueryContext(ctx, `WITH days AS (
-		SELECT generate_series($2::date, ($3::date - interval '1 day')::date, interval '1 day')::date AS day
-	), changes AS (
-		SELECT occurred_at::date AS day,
-			SUM(CASE WHEN event_type = 'member_joined' THEN 1 WHEN event_type = 'member_left' THEN -1 ELSE 0 END) AS delta
-		FROM metric_events WHERE server_id = $1 AND event_type IN ('member_joined','member_left')
-		GROUP BY occurred_at::date
-	), initial AS (
-		SELECT COUNT(*) AS members FROM (
-			SELECT user_id, MAX(occurred_at) FILTER (WHERE event_type IN ('member_joined','member_left')) AS last_event,
-				(MAX(occurred_at) FILTER (WHERE event_type = 'member_joined')) AS last_join
-			FROM metric_events WHERE server_id = $1 AND occurred_at < $2 GROUP BY user_id
-		) x WHERE last_join IS NOT NULL AND (last_event IS NULL OR last_join > last_event)
+	rows, err := r.db.QueryContext(ctx, `WITH buckets AS (
+		SELECT start, LEAST(start + interval '1 day', $3::timestamptz) AS finish
+		FROM generate_series($2::timestamptz, $3::timestamptz - interval '1 microsecond', interval '1 day') AS start
 	)
-	SELECT d.day, (SELECT members FROM initial) + COALESCE(SUM(c.delta) OVER (ORDER BY d.day), 0)
-	FROM days d LEFT JOIN changes c ON c.day = d.day ORDER BY d.day`, serverID, from, to)
+	SELECT b.start, COUNT(m.user_id)
+	FROM buckets b
+	LEFT JOIN LATERAL (
+		SELECT DISTINCT ON (e.user_id) e.user_id, e.event_type
+		FROM metric_events e
+		WHERE e.server_id = $1 AND e.event_type IN ('member_joined','member_left') AND e.occurred_at < b.finish
+		ORDER BY e.user_id, e.occurred_at DESC
+	) m ON m.event_type = 'member_joined'
+	GROUP BY b.start ORDER BY b.start`, serverID, from, to)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []model.GrowthPoint
+	result := make([]model.GrowthPoint, 0)
 	for rows.Next() {
-		var date time.Time
-		var members int
-		if err := rows.Scan(&date, &members); err != nil {
+		var p model.GrowthPoint
+		if err := rows.Scan(&p.Start, &p.Members); err != nil {
 			return nil, err
 		}
-		result = append(result, model.GrowthPoint{Date: date.Format("2006-01-02"), Members: members})
+		p.Start = p.Start.UTC()
+		result = append(result, p)
 	}
 	return result, rows.Err()
 }

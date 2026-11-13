@@ -420,12 +420,16 @@ Tailscale correspondiente.
 Desde este módulo:
 
 ```bash
+make openapi
 gofmt -l .
 go vet ./...
-go test ./... -cover
+go test ./... -coverpkg=./internal/... -coverprofile=coverage.out
+go tool cover -func=coverage.out
 go build ./...
 docker build -t discordia-metrics:ci .
 ```
+
+El CI exige una cobertura total de al menos 70%.
 
 El workflow de GitHub Actions ejecuta automáticamente `gofmt`, `go build`,
 `go vet`, `go test` y el build de la imagen Docker en cada push y pull request.

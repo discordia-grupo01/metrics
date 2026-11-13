@@ -1,4 +1,4 @@
-.PHONY: run test mutation build migrate
+.PHONY: run test mutation build migrate openapi
 
 run:
 	go run ./cmd/api
@@ -19,6 +19,9 @@ mutation:
 
 build:
 	go build -o bin/api ./cmd/api
+
+openapi:
+	npx --yes swagger-cli@4.0.4 validate openapi.yaml
 
 migrate:
 	migrate -path migrations -database "$$DATABASE_URL" up
