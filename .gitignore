@@ -3,3 +3,11 @@
 *.log
 .DS_Store
 /api
+/.openapi-tmp/
+/.contract-venv/
+/.contract-metrics-api
+/.contract-metrics-api.exe
+/.schemathesis/
+/schemathesis-report/
+
+__pycache__/

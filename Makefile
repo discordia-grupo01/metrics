@@ -1,4 +1,4 @@
-.PHONY: run test mutation build migrate openapi
+.PHONY: run test mutation build migrate openapi contract-deps-up contract-deps-down contract-test
 
 run:
 	go run ./cmd/api
@@ -20,8 +20,28 @@ mutation:
 build:
 	go build -o bin/api ./cmd/api
 
+# Genera openapi.yaml desde las anotaciones swag del codigo (mismo flujo que
+# servers) y valida la sintaxis del resultado. --requiredByDefault: todos los
+# campos de las respuestas se devuelven siempre salvo los marcados omitempty.
 openapi:
+	go run github.com/swaggo/swag/cmd/swag@v1.16.4 init -g cmd/api/main.go -o ./.openapi-tmp --parseInternal --requiredByDefault -q
+	npx --yes swagger2openapi@7 ./.openapi-tmp/swagger.yaml -o openapi.yaml --patch
 	npx --yes swagger-cli@4.0.4 validate openapi.yaml
 
 migrate:
 	migrate -path migrations -database "$$DATABASE_URL" up
+
+# Tests de contrato (Schemathesis contra el servicio real). Las dependencias van
+# en contenedores propios y puertos fijos (Postgres 55502, RabbitMQ 55512).
+contract-deps-up:
+	docker run -d --rm --name contract-metrics-pg -p 55502:5432 -e POSTGRES_USER=discordia -e POSTGRES_PASSWORD=discordia -e POSTGRES_DB=discordia_metrics_contract postgres:16-alpine
+	docker run -d --rm --name contract-metrics-rabbitmq -p 55512:5672 rabbitmq:3.13-alpine
+	until docker exec contract-metrics-pg pg_isready -h 127.0.0.1 -U discordia -d discordia_metrics_contract >/dev/null 2>&1; do sleep 1; done
+	until docker exec contract-metrics-rabbitmq rabbitmq-diagnostics -q ping >/dev/null 2>&1; do sleep 1; done
+	go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1 -path migrations -database "postgres://discordia:discordia@localhost:55502/discordia_metrics_contract?sslmode=disable" up
+
+contract-deps-down:
+	-docker rm -f contract-metrics-pg contract-metrics-rabbitmq
+
+contract-test:
+	bash scripts/contract-test.sh
