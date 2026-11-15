@@ -29,6 +29,22 @@ func New(svc *service.Service, repo *repository.Repository, monitor *health.Moni
 	return &Handler{service: svc, repo: repo, health: monitor, publisher: publisher}
 }
 
+// ServiceHealthResponse es el último estado observado de los servicios monitoreados.
+type ServiceHealthResponse struct {
+	Services []health.ServiceStatus `json:"services"`
+}
+
+// ServiceHealth devuelve el último estado observado por el monitor.
+//
+// @Summary      Consultar el estado de salud de los servicios
+// @Description  Requiere staff. Devuelve el último estado observado por el monitor de metrics.
+// @Tags         Incidents
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  ServiceHealthResponse  "Estados observados"
+// @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
+// @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Router       /v1/health/services [get]
 func (h *Handler) ServiceHealth(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
@@ -36,12 +52,27 @@ func (h *Handler) ServiceHealth(c *gin.Context) {
 		return
 	}
 	if h.health == nil {
-		c.JSON(http.StatusOK, gin.H{"services": []health.ServiceStatus{}})
+		c.JSON(http.StatusOK, ServiceHealthResponse{Services: []health.ServiceStatus{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"services": h.health.Snapshot()})
+	c.JSON(http.StatusOK, ServiceHealthResponse{Services: h.health.Snapshot()})
 }
 
+// ServerSummary devuelve el resumen de actividad de un servidor.
+//
+// @Summary      Consultar el resumen de actividad de un servidor
+// @Description  Devuelve miembros activos, mensajes enviados y nuevos miembros dentro del período solicitado. Requiere rol de staff. Si no hubo actividad, responde 200 con contadores en cero y has_activity=false.
+// @Tags         Server metrics
+// @Produce      json
+// @Security     BearerAuth
+// @Param        serverId  path   string  true   "UUID del servidor"  format(uuid)
+// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`)"  format(date-time)
+// @Param        to        query  string  false  "Fin exclusivo del período en RFC3339 (por defecto, ahora); el período máximo es de 366 días"  format(date-time)
+// @Success      200  {object}  model.ServerSummary  "Resumen de actividad"
+// @Failure      400  {object}  model.ErrorResponse  "Servidor o período inválidos"
+// @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
+// @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Router       /v1/servers/{serverId}/metrics [get]
 func (h *Handler) ServerSummary(c *gin.Context) {
 	from, to, ok := h.period(c)
 	if !ok {
@@ -54,6 +85,21 @@ func (h *Handler) ServerSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, summary)
 }
 
+// ServerGrowth devuelve la serie diaria de miembros de un servidor.
+//
+// @Summary      Consultar el crecimiento diario de miembros
+// @Description  Devuelve un punto por cada tramo de 24 h desde `from` (el último termina en `to`), con la cantidad de miembros al cierre del tramo. Los tramos sin cambios se incluyen con el total. Requiere rol de staff.
+// @Tags         Server metrics
+// @Produce      json
+// @Security     BearerAuth
+// @Param        serverId  path   string  true   "UUID del servidor"  format(uuid)
+// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`)"  format(date-time)
+// @Param        to        query  string  false  "Fin exclusivo del período en RFC3339 (por defecto, ahora); el período máximo es de 366 días"  format(date-time)
+// @Success      200  {object}  model.GrowthResponse  "Serie diaria de miembros"
+// @Failure      400  {object}  model.ErrorResponse   "Servidor o período inválidos"
+// @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
+// @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Router       /v1/servers/{serverId}/metrics/growth [get]
 func (h *Handler) ServerGrowth(c *gin.Context) {
 	from, to, ok := h.period(c)
 	if !ok {
@@ -63,9 +109,25 @@ func (h *Handler) ServerGrowth(c *gin.Context) {
 	if h.respondError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"from": from, "to": to, "has_activity": len(points) > 0, "points": points})
+	c.JSON(http.StatusOK, model.GrowthResponse{From: from, To: to, HasActivity: len(points) > 0, Points: points})
 }
 
+// Export devuelve el resumen de un servidor como CSV.
+//
+// @Summary      Exportar métricas de un servidor a CSV
+// @Description  Genera un archivo CSV con el resumen del período. Requiere rol de staff.
+// @Tags         Server metrics
+// @Produce      json,text/csv
+// @Security     BearerAuth
+// @Param        serverId  path   string  true   "UUID del servidor"  format(uuid)
+// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`)"  format(date-time)
+// @Param        to        query  string  false  "Fin exclusivo del período en RFC3339 (por defecto, ahora); el período máximo es de 366 días"  format(date-time)
+// @Success      200  {file}    file                 "Archivo CSV generado (text/csv); los errores responden JSON"
+// @Header       200  {string}  Content-Disposition  "Nombre sugerido del archivo, attachment; filename=metrics.csv"
+// @Failure      400  {object}  model.ErrorResponse  "Servidor o período inválidos"
+// @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
+// @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Router       /v1/servers/{serverId}/metrics/export.csv [get]
 func (h *Handler) Export(c *gin.Context) {
 	from, to, ok := h.period(c)
 	if !ok {
@@ -80,6 +142,20 @@ func (h *Handler) Export(c *gin.Context) {
 	}
 }
 
+// Global devuelve las métricas agregadas de toda la plataforma.
+//
+// @Summary      Consultar métricas globales de la plataforma
+// @Description  Agrega la actividad de todos los servidores. Requiere que el usuario autenticado esté en la proyección local de staff sincronizada desde admin. Además de los totales devuelve una serie para graficar: los períodos de hasta 24 horas se dividen por hora y los más largos por día. Los tramos empiezan en `from`, así que si el cliente manda la medianoche local los días coinciden con su zona horaria. El último tramo se recorta en `to`.
+// @Tags         Platform metrics
+// @Produce      json
+// @Security     BearerAuth
+// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`)"  format(date-time)
+// @Param        to        query  string  false  "Fin exclusivo del período en RFC3339 (por defecto, ahora); el período máximo es de 366 días"  format(date-time)
+// @Success      200  {object}  model.GlobalSummary  "Resumen global"
+// @Failure      400  {object}  model.ErrorResponse  "Período inválido"
+// @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
+// @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Router       /v1/metrics/global [get]
 func (h *Handler) Global(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
@@ -97,6 +173,16 @@ func (h *Handler) Global(c *gin.Context) {
 	c.JSON(http.StatusOK, summary)
 }
 
+// Incidents devuelve el estado actual de la plataforma y sus incidentes activos.
+//
+// @Summary      Consultar el estado actual de la plataforma
+// @Description  Devuelve el estado actual y los incidentes activos para cualquier usuario autenticado.
+// @Tags         Incidents
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  model.PlatformStatusResponse  "Estado e incidentes activos"
+// @Failure      401  {object}  model.ErrorResponse           "Falta una credencial válida"
+// @Router       /v1/status [get]
 func (h *Handler) Incidents(c *gin.Context) {
 	incidents, err := h.repo.Incidents(c, true)
 	if h.respondError(c, err) {
@@ -106,9 +192,23 @@ func (h *Handler) Incidents(c *gin.Context) {
 	if len(incidents) > 0 {
 		platformStatus = incidents[0].PlatformStatus
 	}
-	c.JSON(http.StatusOK, gin.H{"status": platformStatus, "incidents": incidents})
+	c.JSON(http.StatusOK, model.PlatformStatusResponse{Status: platformStatus, Incidents: incidents})
 }
 
+// CreateIncident publica un incidente.
+//
+// @Summary      Publicar un incidente
+// @Description  Requiere que el usuario autenticado sea staff. Si no se envía `platform_status`, se usa `degraded`.
+// @Tags         Incidents
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body  body  model.IncidentInput  true  "Datos del incidente"
+// @Success      201  {object}  model.Incident       "Incidente creado"
+// @Failure      400  {object}  model.ErrorResponse  "Cuerpo inválido o fuera de los límites de largo"
+// @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
+// @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Router       /v1/metrics/incidents [post]
 func (h *Handler) CreateIncident(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
@@ -143,6 +243,20 @@ func validPlatformStatus(value string) bool {
 	return value == model.PlatformOperational || value == model.PlatformDegraded || value == model.PlatformMaintenance
 }
 
+// ResolveIncident resuelve un incidente activo.
+//
+// @Summary      Resolver un incidente
+// @Description  Requiere staff y un incidente actualmente activo.
+// @Tags         Incidents
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path  string  true  "UUID del incidente"  format(uuid)
+// @Success      204  "Incidente resuelto"
+// @Failure      400  {object}  model.ErrorResponse  "Identificador inválido"
+// @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
+// @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      404  {object}  model.ErrorResponse  "El incidente no existe o ya estaba resuelto"
+// @Router       /v1/metrics/incidents/{id}/resolve [post]
 func (h *Handler) ResolveIncident(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {

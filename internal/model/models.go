@@ -66,15 +66,15 @@ type Incident struct {
 	PlatformStatus   string     `json:"platform_status" enums:"operational,degraded,maintenance"`
 	Status           string     `json:"status" enums:"active,resolved"`
 	CreatedAt        time.Time  `json:"created_at" format:"date-time"`
-	ResolvedAt       *time.Time `json:"resolved_at,omitempty" format:"date-time" extensions:"x-nullable"`
+	ResolvedAt       *time.Time `json:"resolved_at,omitempty" format:"date-time" validate:"optional"`
 }
 
 type IncidentInput struct {
 	Title            string   `json:"title" binding:"required" minLength:"1" maxLength:"160"`
 	Description      string   `json:"description" binding:"required" minLength:"1" maxLength:"5000"`
-	AffectedServices []string `json:"affected_services" example:"metrics,gateway"`
+	AffectedServices []string `json:"affected_services" example:"metrics,gateway" validate:"optional"`
 	// PlatformStatus es degraded si no se envía.
-	PlatformStatus string `json:"platform_status" enums:"operational,degraded,maintenance" default:"degraded"`
+	PlatformStatus string `json:"platform_status" enums:"operational,degraded,maintenance" default:"degraded" validate:"optional"`
 }
 
 const (
