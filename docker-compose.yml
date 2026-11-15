@@ -2,22 +2,37 @@ services:
   api:
     build: .
     ports:
-      - "8080:8080"
-    env_file: .env
+      - "${API_PORT:-8080}:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENVIRONMENT: development
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-discordia_metrics}
+      DATABASE_USER: ${DATABASE_USER:-discordia}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-discordia}
+      DATABASE_SSLMODE: disable
+      DATABASE_URL: ""
+      USER_ID_HEADER: X-User-Id
+      STAFF_USER_IDS: ${STAFF_USER_IDS:-11111111-1111-4111-8111-111111111111}
+      RABBITMQ_URL: ${RABBITMQ_URL_DOCKER:-}
+      ADMIN_EVENTS_HMAC_SECRET: ${ADMIN_EVENTS_HMAC_SECRET:-secreto-admin-solo-local}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      db:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      migrations:
+      migrate:
         condition: service_completed_successfully
 
-  migrations:
+  migrate:
     image: migrate/migrate
     command:
-      - -path=/migrations
-      - -database=postgres://discordia:discordia@db:5432/discordia_metrics?sslmode=disable
-      - up
+      - "-path=/migrations"
+      - "-database=postgres://${DATABASE_USER:-discordia}:${DATABASE_PASSWORD:-discordia}@db:5432/${DATABASE_NAME:-discordia_metrics}?sslmode=disable"
+      - "up"
     volumes:
       - ./migrations:/migrations:ro
     depends_on:
@@ -27,29 +42,18 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: discordia_metrics
-      POSTGRES_USER: discordia
-      POSTGRES_PASSWORD: discordia
+      POSTGRES_DB: ${DATABASE_NAME:-discordia_metrics}
+      POSTGRES_USER: ${DATABASE_USER:-discordia}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-discordia}
     ports:
-      - "5432:5432"
+      - "${DATABASE_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U discordia"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-discordia} -d ${DATABASE_NAME:-discordia_metrics}"]
       interval: 5s
       timeout: 5s
       retries: 5
-
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
 
 volumes:
   db_data:
