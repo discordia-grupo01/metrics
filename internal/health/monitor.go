@@ -22,9 +22,9 @@ type Target struct {
 
 type ServiceStatus struct {
 	Name                 string    `json:"name"`
-	Status               string    `json:"status"`
-	LastCheckedAt        time.Time `json:"last_checked_at,omitempty"`
-	ConsecutiveFailures  int       `json:"consecutive_failures,omitempty"`
+	Status               string    `json:"status" enums:"unknown,operational,degraded"`
+	LastCheckedAt        time.Time `json:"last_checked_at,omitempty" format:"date-time"`
+	ConsecutiveFailures  int       `json:"consecutive_failures,omitempty" minimum:"0"`
 	ConsecutiveSuccesses int       `json:"-"`
 }
 
