@@ -3,12 +3,14 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"regexp"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/discordia-grupo01/metrics/internal/model"
 	"github.com/google/uuid"
 )
 
@@ -252,4 +254,35 @@ func newRepositoryMock(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 		t.Fatal(err)
 	}
 	return db, mock
+}
+
+type passthroughConverter struct{}
+
+func (passthroughConverter) ConvertValue(v any) (driver.Value, error) { return v, nil }
+
+type nonNilSlice struct{}
+
+func (nonNilSlice) Match(v driver.Value) bool {
+	services, ok := v.([]string)
+	return ok && services != nil
+}
+
+func TestCreateIncidentWithoutServicesInsertsEmptyList(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.ValueConverterOption(passthroughConverter{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery("INSERT INTO incidents").
+		WithArgs(sqlmock.AnyArg(), "title", "description", nonNilSlice{}, "degraded").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "description", "affected_services", "platform_status", "status", "created_at", "resolved_at"}).
+			AddRow("incident-id", "title", "description", "{}", "degraded", "active", time.Now().UTC(), nil))
+
+	_, err = New(db).CreateIncident(context.Background(), model.IncidentInput{Title: "title", Description: "description", PlatformStatus: "degraded"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }

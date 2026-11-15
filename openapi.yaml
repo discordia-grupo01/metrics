@@ -1,569 +1,702 @@
-openapi: 3.0.3
+openapi: 3.0.0
 info:
-  title: Discordia - Metrics
-  version: 1.0.0
+  contact: {}
   description: >-
     API de métricas de actividad y estado de plataforma de Discordia.
 
-    El servicio mantiene una proyección local de eventos publicados en
-    RabbitMQ. No accede directamente a las bases de datos de otros servicios.
-    Kong valida el JWT en el gateway; las rutas /v1/** requieren un bearer
-    token válido.
 
-    Las métricas de servidor, las métricas globales y la gestión de incidentes
-    requieren un usuario de staff según la proyección local sincronizada desde
-    admin.
-  contact:
-    name: Equipo Discordia
-servers:
-  - url: http://localhost:8080
-    description: Desarrollo local directo
-  - url: http://localhost:8000
-    description: Gateway local
-tags:
-  - name: ops
-    description: Health checks del servicio
-  - name: server-metrics
-    description: Métricas de actividad y crecimiento de un servidor
-  - name: platform-metrics
-    description: Métricas globales de la plataforma
-  - name: incidents
-    description: Estado e incidentes visibles en la plataforma
+    El servicio mantiene una proyección local de eventos publicados en RabbitMQ; no accede directamente a las bases de datos de otros servicios. Kong valida el JWT en el gateway: las rutas `/v1/**` requieren `Authorization: Bearer <JWT>`; el servicio solo lee el `sub` del token (o un header de usuario configurable) sin verificar la firma.
+
+
+    Las métricas de servidor, las métricas globales, la salud de los servicios y la gestión de incidentes requieren un usuario de staff según la proyección local sincronizada desde admin. `GET /v1/status` solo exige estar autenticado.
+
+
+    Todos los errores tienen la forma `{"error": "texto"}`.
+  title: Discordia - Metrics
+  version: 1.0.0
 paths:
   /livez:
     get:
-      tags: [ops]
-      summary: Comprobar que el proceso está vivo
-      description: No consulta dependencias externas.
+      description: Confirma que el proceso está vivo. No consulta dependencias;
+        responde 200 sin cuerpo.
       responses:
         "200":
-          description: El proceso está vivo.
+          description: El proceso está vivo
+      summary: Liveness check
+      tags:
+        - Health
   /readyz:
     get:
-      tags: [ops]
-      summary: Comprobar disponibilidad operativa
       description: Verifica que el servicio puede conectarse a PostgreSQL.
       responses:
         "200":
-          description: Servicio listo.
+          description: Listo para recibir tráfico
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ReadyResponse"
+                $ref: "#/components/schemas/model.StatusResponse"
         "503":
-          description: PostgreSQL no disponible.
+          description: PostgreSQL no responde (status not_ready)
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-  /v1/servers/{serverId}/metrics:
+                $ref: "#/components/schemas/model.StatusResponse"
+      summary: Readiness check
+      tags:
+        - Health
+  /v1/health/services:
     get:
-      tags: [server-metrics]
+      description: Requiere staff. Devuelve el último estado observado por el monitor
+        de metrics.
+      responses:
+        "200":
+          description: Estados observados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/handler.ServiceHealthResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "403":
+          description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+      security:
+        - BearerAuth: []
+      summary: Consultar el estado de salud de los servicios
+      tags:
+        - Incidents
+  /v1/metrics/global:
+    get:
+      description: "Agrega la actividad de todos los servidores. Requiere que el
+        usuario autenticado esté en la proyección local de staff sincronizada
+        desde admin. Además de los totales devuelve una serie para graficar: los
+        períodos de hasta 24 horas se dividen por hora y los más largos por día.
+        Los tramos empiezan en `from`, así que si el cliente manda la medianoche
+        local los días coinciden con su zona horaria. El último tramo se recorta
+        en `to`."
+      parameters:
+        - description: Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes
+            de `to`)
+          in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - description: Fin exclusivo del período en RFC3339 (por defecto, ahora); el
+            período máximo es de 366 días
+          in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Resumen global
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.GlobalSummary"
+        "400":
+          description: Período inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "403":
+          description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+      security:
+        - BearerAuth: []
+      summary: Consultar métricas globales de la plataforma
+      tags:
+        - Platform metrics
+  /v1/metrics/incidents:
+    post:
+      description: Requiere que el usuario autenticado sea staff. Si no se envía
+        `platform_status`, se usa `degraded`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/model.IncidentInput"
+        description: Datos del incidente
+        required: true
+      responses:
+        "201":
+          description: Incidente creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.Incident"
+        "400":
+          description: Cuerpo inválido o fuera de los límites de largo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "403":
+          description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+      security:
+        - BearerAuth: []
+      summary: Publicar un incidente
+      tags:
+        - Incidents
+  "/v1/metrics/incidents/{id}/resolve":
+    post:
+      description: Requiere staff y un incidente actualmente activo.
+      parameters:
+        - description: UUID del incidente
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Incidente resuelto
+        "400":
+          description: Identificador inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "403":
+          description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "404":
+          description: El incidente no existe o ya estaba resuelto
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+      security:
+        - BearerAuth: []
+      summary: Resolver un incidente
+      tags:
+        - Incidents
+  "/v1/servers/{serverId}/metrics":
+    get:
+      description: Devuelve miembros activos, mensajes enviados y nuevos miembros
+        dentro del período solicitado. Requiere rol de staff. Si no hubo
+        actividad, responde 200 con contadores en cero y has_activity=false.
+      parameters:
+        - description: UUID del servidor
+          in: path
+          name: serverId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - description: Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes
+            de `to`)
+          in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - description: Fin exclusivo del período en RFC3339 (por defecto, ahora); el
+            período máximo es de 366 días
+          in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Resumen de actividad
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ServerSummary"
+        "400":
+          description: Servidor o período inválidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "403":
+          description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+      security:
+        - BearerAuth: []
       summary: Consultar el resumen de actividad de un servidor
-      description: >-
-        Devuelve miembros activos, mensajes enviados y nuevos miembros dentro
-        del período solicitado. Requiere rol de staff. Si no hubo actividad, responde 200 con contadores en cero y
-        has_activity=false.
-      security:
-        - BearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ServerId"
-        - $ref: "#/components/parameters/From"
-        - $ref: "#/components/parameters/To"
-      responses:
-        "200":
-          description: Resumen de actividad.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Summary"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: El usuario no tiene rol de staff.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-  /v1/servers/{serverId}/metrics/growth:
+      tags:
+        - Server metrics
+  "/v1/servers/{serverId}/metrics/export.csv":
     get:
-      tags: [server-metrics]
-      summary: Consultar el crecimiento diario de miembros
-      description: >-
-        Devuelve un punto por cada tramo de 24 h desde `from` (el último
-        termina en `to`), con la cantidad de miembros al cierre del tramo.
-        Los tramos sin cambios se incluyen con el total. Requiere rol de staff.
-      security:
-        - BearerAuth: []
+      description: Genera un archivo CSV con el resumen del período. Requiere rol de staff.
       parameters:
-        - $ref: "#/components/parameters/ServerId"
-        - $ref: "#/components/parameters/From"
-        - $ref: "#/components/parameters/To"
+        - description: UUID del servidor
+          in: path
+          name: serverId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - description: Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes
+            de `to`)
+          in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - description: Fin exclusivo del período en RFC3339 (por defecto, ahora); el
+            período máximo es de 366 días
+          in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
-          description: Serie diaria de miembros.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GrowthResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: El usuario no tiene rol de staff.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-  /v1/servers/{serverId}/metrics/export.csv:
-    get:
-      tags: [server-metrics]
-      summary: Exportar métricas de un servidor a CSV
-      description: >-
-        Genera un archivo CSV con el resumen del período. Requiere rol
-        de staff.
-      security:
-        - BearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ServerId"
-        - $ref: "#/components/parameters/From"
-        - $ref: "#/components/parameters/To"
-      responses:
-        "200":
-          description: Archivo CSV generado.
+          description: Archivo CSV generado (text/csv); los errores responden JSON
           headers:
             Content-Disposition:
-              description: Nombre sugerido del archivo.
+              description: Nombre sugerido del archivo, attachment; filename=metrics.csv
               schema:
                 type: string
-                example: 'attachment; filename="metrics.csv"'
           content:
+            application/json:
+              schema:
+                type: string
+                format: binary
             text/csv:
               schema:
                 type: string
                 format: binary
         "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: El usuario no tiene rol de staff.
+          description: Servidor o período inválidos
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-  /v1/metrics/global:
-    get:
-      tags: [platform-metrics]
-      summary: Consultar métricas globales de la plataforma
-      description: >-
-        Agrega actividad de todos los servidores. Requiere que el usuario
-        autenticado esté en la proyección local de staff sincronizada desde admin.
-
-        Además de los totales devuelve una serie para graficar. El servicio
-        elige la granularidad: períodos de hasta 24 horas se dividen por hora
-        y los más largos por día. Los tramos empiezan en `from`, así que si el
-        cliente manda la medianoche local los días coinciden con su zona
-        horaria. El último tramo se recorta en `to`.
+                $ref: "#/components/schemas/model.ErrorResponse"
+            text/csv:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+            text/csv:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "403":
+          description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+            text/csv:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
       security:
         - BearerAuth: []
+      summary: Exportar métricas de un servidor a CSV
+      tags:
+        - Server metrics
+  "/v1/servers/{serverId}/metrics/growth":
+    get:
+      description: Devuelve un punto por cada tramo de 24 h desde `from` (el último
+        termina en `to`), con la cantidad de miembros al cierre del tramo. Los
+        tramos sin cambios se incluyen con el total. Requiere rol de staff.
       parameters:
-        - $ref: "#/components/parameters/From"
-        - $ref: "#/components/parameters/To"
+        - description: UUID del servidor
+          in: path
+          name: serverId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - description: Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes
+            de `to`)
+          in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - description: Fin exclusivo del período en RFC3339 (por defecto, ahora); el
+            período máximo es de 366 días
+          in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
-          description: Resumen global.
+          description: Serie diaria de miembros
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GlobalSummary"
+                $ref: "#/components/schemas/model.GrowthResponse"
         "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: El usuario no tiene rol de staff.
+          description: Servidor o período inválidos
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "403":
+          description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+      security:
+        - BearerAuth: []
+      summary: Consultar el crecimiento diario de miembros
+      tags:
+        - Server metrics
   /v1/status:
     get:
-      tags: [incidents]
+      description: Devuelve el estado actual y los incidentes activos para cualquier
+        usuario autenticado.
+      responses:
+        "200":
+          description: Estado e incidentes activos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.PlatformStatusResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+      security:
+        - BearerAuth: []
       summary: Consultar el estado actual de la plataforma
-      description: Devuelve el estado actual y los incidentes activos para usuarios autenticados.
-      security:
-        - BearerAuth: []
-      responses:
-        "200":
-          description: Incidentes activos.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PlatformStatus"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-  /v1/metrics/incidents:
-    post:
-      tags: [incidents]
-      summary: Publicar un incidente
-      description: Requiere que el usuario autenticado sea staff.
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/IncidentInput"
-      responses:
-        "201":
-          description: Incidente creado.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Incident"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: El usuario no tiene rol de staff.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-  /v1/health/services:
-    get:
-      tags: [incidents]
-      summary: Consultar el estado de salud de los servicios
-      description: Requiere staff. Devuelve el último estado observado por el monitor de metrics.
-      security:
-        - BearerAuth: []
-      responses:
-        "200":
-          description: Estados observados.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ServiceHealthList"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: El usuario no tiene rol de staff.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-  /v1/metrics/incidents/{id}/resolve:
-    post:
-      tags: [incidents]
-      summary: Resolver un incidente
-      description: Requiere staff y un incidente actualmente activo.
-      security:
-        - BearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/IncidentId"
-      responses:
-        "204":
-          description: Incidente resuelto.
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: El usuario no tiene rol de staff.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: El incidente no existe o ya estaba resuelto.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+      tags:
+        - Incidents
+servers:
+  - url: http://localhost:8080
 components:
   securitySchemes:
     BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-  parameters:
-    ServerId:
-      name: serverId
-      in: path
-      required: true
-      description: UUID del servidor.
-      schema:
-        type: string
-        format: uuid
-    IncidentId:
-      name: id
-      in: path
-      required: true
-      description: UUID del incidente.
-      schema:
-        type: string
-        format: uuid
-    From:
-      name: from
-      in: query
-      required: false
-      description: Inicio inclusivo del período en RFC3339. Default, últimos 30 días.
-      schema:
-        type: string
-        format: date-time
-    To:
-      name: to
-      in: query
-      required: false
-      description: Fin exclusivo del período en RFC3339. Default, ahora.
-      schema:
-        type: string
-        format: date-time
-  responses:
-    BadRequest:
-      description: Parámetros o cuerpo inválidos.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    Unauthorized:
-      description: Falta una credencial válida.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
+      description: Escribir "Bearer " seguido del JWT.
+      in: header
+      name: Authorization
+      type: apiKey
   schemas:
-    ErrorResponse:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: string
-          example: from/to must be RFC3339, from before to, maximum 366 days
-    ReadyResponse:
-      type: object
-      required: [status]
-      properties:
-        status:
-          type: string
-          example: ready
-    Summary:
-      type: object
-      required:
-        - from
-        - to
-        - active_members
-        - messages_sent
-        - new_members
-        - has_activity
-      properties:
-        from:
-          type: string
-          format: date-time
-        to:
-          type: string
-          format: date-time
-        active_members:
-          type: integer
-          minimum: 0
-          description: Usuarios distintos con actividad registrada en el período.
-        messages_sent:
-          type: integer
-          minimum: 0
-        new_members:
-          type: integer
-          minimum: 0
-        has_activity:
-          type: boolean
-          description: False cuando todos los contadores del período son cero.
-    GlobalSummary:
-      type: object
-      required:
-        - from
-        - to
-        - active_users
-        - servers_created
-        - messages_sent
-        - has_activity
-        - granularity
-        - series
-      properties:
-        from:
-          type: string
-          format: date-time
-        to:
-          type: string
-          format: date-time
-        active_users:
-          type: integer
-          minimum: 0
-          description: Usuarios distintos con mensajes o cambios de membresía en el período.
-        servers_created:
-          type: integer
-          minimum: 0
-          description: Servidores cuyo primer evento server_updated ocurrió en el período.
-        messages_sent:
-          type: integer
-          minimum: 0
-        has_activity:
-          type: boolean
-          description: False cuando todos los contadores del período son cero.
-        granularity:
-          type: string
-          enum: [hour, day]
-          description: hour si el período dura hasta 24 horas; day si es más largo.
-        series:
-          type: array
-          items:
-            $ref: "#/components/schemas/GlobalPoint"
-    GlobalPoint:
-      type: object
-      required: [start, active_users, servers_created, messages_sent]
-      properties:
-        start:
-          type: string
-          format: date-time
-          description: Inicio del tramo, en UTC. El cliente lo muestra en su zona horaria.
-        active_users:
-          type: integer
-          minimum: 0
-          description: >-
-            Usuarios distintos activos dentro del tramo, con el mismo criterio
-            que el active_users del período. No sumar los tramos para obtener
-            el total: quien estuvo activo varios días aparece en cada uno, pero
-            en el total del período cuenta una sola vez.
-        servers_created:
-          type: integer
-          minimum: 0
-        messages_sent:
-          type: integer
-          minimum: 0
-    GrowthResponse:
-      type: object
-      required: [from, to, has_activity, points]
-      properties:
-        from:
-          type: string
-          format: date-time
-        to:
-          type: string
-          format: date-time
-        has_activity:
-          type: boolean
-        points:
-          type: array
-          items:
-            $ref: "#/components/schemas/GrowthPoint"
-    GrowthPoint:
-      type: object
-      required: [start, members]
-      properties:
-        start:
-          type: string
-          format: date-time
-          description: Inicio del tramo, en UTC. El cliente lo muestra en su zona horaria.
-        members:
-          type: integer
-          minimum: 0
-    IncidentInput:
-      type: object
-      required: [title, description]
-      properties:
-        title:
-          type: string
-          minLength: 1
-          maxLength: 160
-        description:
-          type: string
-          minLength: 1
-          maxLength: 5000
-        affected_services:
-          type: array
-          items:
-            type: string
-          example: [metrics, gateway]
-        platform_status:
-          type: string
-          enum: [operational, degraded, maintenance]
-          default: degraded
-    Incident:
-      type: object
-      required:
-        - id
-        - title
-        - description
-        - affected_services
-        - platform_status
-        - status
-        - created_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        title:
-          type: string
-        description:
-          type: string
-        affected_services:
-          type: array
-          items:
-            type: string
-        platform_status:
-          type: string
-          enum: [operational, degraded, maintenance]
-        status:
-          type: string
-          enum: [active, resolved]
-        created_at:
-          type: string
-          format: date-time
-        resolved_at:
-          type: string
-          format: date-time
-          nullable: true
-    IncidentList:
-      type: object
-      required: [incidents]
-      properties:
-        incidents:
-          type: array
-          items:
-            $ref: "#/components/schemas/Incident"
-    PlatformStatus:
-      type: object
-      required: [status, incidents]
-      properties:
-        status:
-          type: string
-          enum: [operational, degraded, maintenance]
-        incidents:
-          type: array
-          items:
-            $ref: "#/components/schemas/Incident"
-    ServiceHealthList:
-      type: object
-      required: [services]
+    handler.ServiceHealthResponse:
       properties:
         services:
-          type: array
           items:
-            $ref: "#/components/schemas/ServiceHealth"
-    ServiceHealth:
+            $ref: "#/components/schemas/health.ServiceStatus"
+          type: array
+      required:
+        - services
       type: object
-      required: [name, status]
+    health.ServiceStatus:
       properties:
+        consecutive_failures:
+          minimum: 0
+          type: integer
+        last_checked_at:
+          format: date-time
+          type: string
         name:
           type: string
         status:
+          enum:
+            - unknown
+            - operational
+            - degraded
           type: string
-          enum: [unknown, operational, degraded]
-        last_checked_at:
+      required:
+        - last_checked_at
+        - name
+        - status
+      type: object
+    model.ErrorResponse:
+      properties:
+        error:
+          example: staff role required
           type: string
-          format: date-time
-        consecutive_failures:
-          type: integer
+      required:
+        - error
+      type: object
+    model.GlobalPoint:
+      properties:
+        active_users:
+          description: >-
+            ActiveUsers cuenta usuarios distintos dentro del tramo, con el mismo
+            criterio
+
+            que el total del período. No sumar los tramos para obtener el total: quien
+
+            estuvo activo varios días aparece en cada uno, pero en el total cuenta una vez.
           minimum: 0
+          type: integer
+        messages_sent:
+          minimum: 0
+          type: integer
+        servers_created:
+          minimum: 0
+          type: integer
+        start:
+          description: Start es el inicio del tramo, en UTC. El cliente lo muestra en su
+            zona horaria.
+          format: date-time
+          type: string
+      required:
+        - active_users
+        - messages_sent
+        - servers_created
+        - start
+      type: object
+    model.GlobalSummary:
+      properties:
+        active_users:
+          description: ActiveUsers son los usuarios distintos con mensajes o cambios de
+            membresía en el período.
+          minimum: 0
+          type: integer
+        from:
+          format: date-time
+          type: string
+        granularity:
+          description: Granularity es hour si el período dura hasta 24 horas y day si es
+            más largo.
+          enum:
+            - hour
+            - day
+          type: string
+        has_activity:
+          description: HasActivity es false cuando todos los contadores del período son
+            cero.
+          type: boolean
+        messages_sent:
+          minimum: 0
+          type: integer
+        series:
+          items:
+            $ref: "#/components/schemas/model.GlobalPoint"
+          type: array
+        servers_created:
+          description: ServersCreated son los servidores cuyo primer evento server_updated
+            ocurrió en el período.
+          minimum: 0
+          type: integer
+        to:
+          format: date-time
+          type: string
+      required:
+        - active_users
+        - from
+        - granularity
+        - has_activity
+        - messages_sent
+        - series
+        - servers_created
+        - to
+      type: object
+    model.GrowthPoint:
+      properties:
+        members:
+          minimum: 0
+          type: integer
+        start:
+          description: Start es el inicio del tramo, en UTC. El cliente lo muestra en su
+            zona horaria.
+          format: date-time
+          type: string
+      required:
+        - members
+        - start
+      type: object
+    model.GrowthResponse:
+      properties:
+        from:
+          format: date-time
+          type: string
+        has_activity:
+          type: boolean
+        points:
+          items:
+            $ref: "#/components/schemas/model.GrowthPoint"
+          type: array
+        to:
+          format: date-time
+          type: string
+      required:
+        - from
+        - has_activity
+        - points
+        - to
+      type: object
+    model.Incident:
+      properties:
+        affected_services:
+          items:
+            type: string
+          type: array
+        created_at:
+          format: date-time
+          type: string
+        description:
+          type: string
+        id:
+          format: uuid
+          type: string
+        platform_status:
+          enum:
+            - operational
+            - degraded
+            - maintenance
+          type: string
+        resolved_at:
+          format: date-time
+          type: string
+        status:
+          enum:
+            - active
+            - resolved
+          type: string
+        title:
+          type: string
+      required:
+        - affected_services
+        - created_at
+        - description
+        - id
+        - platform_status
+        - status
+        - title
+      type: object
+    model.IncidentInput:
+      properties:
+        affected_services:
+          example:
+            - metrics
+            - gateway
+          items:
+            type: string
+          type: array
+        description:
+          maxLength: 5000
+          minLength: 1
+          type: string
+        platform_status:
+          default: degraded
+          description: PlatformStatus es degraded si no se envía.
+          enum:
+            - operational
+            - degraded
+            - maintenance
+          type: string
+        title:
+          maxLength: 160
+          minLength: 1
+          type: string
+      required:
+        - description
+        - title
+      type: object
+    model.PlatformStatusResponse:
+      properties:
+        incidents:
+          items:
+            $ref: "#/components/schemas/model.Incident"
+          type: array
+        status:
+          enum:
+            - operational
+            - degraded
+            - maintenance
+          type: string
+      required:
+        - incidents
+        - status
+      type: object
+    model.ServerSummary:
+      properties:
+        active_members:
+          description: ActiveMembers son los usuarios distintos con actividad registrada
+            en el período.
+          minimum: 0
+          type: integer
+        from:
+          format: date-time
+          type: string
+        has_activity:
+          description: HasActivity es false cuando todos los contadores del período son
+            cero.
+          type: boolean
+        messages_sent:
+          minimum: 0
+          type: integer
+        new_members:
+          minimum: 0
+          type: integer
+        to:
+          format: date-time
+          type: string
+      required:
+        - active_members
+        - from
+        - has_activity
+        - messages_sent
+        - new_members
+        - to
+      type: object
+    model.StatusResponse:
+      properties:
+        status:
+          example: ready
+          type: string
+      required:
+        - status
+      type: object

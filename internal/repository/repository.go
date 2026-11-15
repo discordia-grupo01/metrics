@@ -267,6 +267,10 @@ func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.In
 
 func (r *Repository) CreateIncident(ctx context.Context, input model.IncidentInput) (model.Incident, error) {
 	id := uuid.New()
+	if input.AffectedServices == nil {
+		// La columna es NOT NULL DEFAULT '{}': sin servicios afectados va vacía, no NULL.
+		input.AffectedServices = []string{}
+	}
 	var i model.Incident
 	err := r.db.QueryRowContext(ctx, `INSERT INTO incidents (id,title,description,affected_services,platform_status)
 		VALUES ($1,$2,$3,$4,$5) RETURNING id,title,description,affected_services,platform_status,status,created_at,resolved_at`,
