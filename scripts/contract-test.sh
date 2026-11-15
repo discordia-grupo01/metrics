@@ -49,6 +49,8 @@ else
   "$PIP" install -q "schemathesis==4.33.4"
   if [ -x "$VENV/bin/schemathesis" ]; then ST="$VENV/bin/schemathesis"; else ST="$VENV/Scripts/schemathesis.exe"; fi
 fi
+# Python del mismo entorno que Schemathesis (trae PyYAML) para medir cobertura.
+if [ -x "$VENV/bin/python" ]; then PY_VENV="$VENV/bin/python"; elif [ -x "$VENV/Scripts/python.exe" ]; then PY_VENV="$VENV/Scripts/python.exe"; else PY_VENV="$PY"; fi
 
 # metrics no verifica la firma del JWT (la valida Kong): toma el `sub` del payload.
 make_token() {
@@ -140,4 +142,36 @@ expect_status 200 -H "Authorization: Bearer $USER_TOKEN" "$BASE/v1/status"
   --seed 1 \
   --checks all \
   --exclude-checks positive_data_acceptance,negative_data_rejection,unsupported_method \
-  --report junit --report-dir "$REPORT_DIR"
+  --report junit,har --report-dir "$REPORT_DIR"
+
+# Segunda corrida con datos reales: se siembran eventos y un hook fija el servidor y
+# el periodo de esos datos, para validar contra el contrato respuestas con contadores
+# distintos de cero (la primera corrida, con ids y fechas al azar, solo ve ceros).
+SEED=scripts/contract/seed.sql
+if command -v psql >/dev/null 2>&1; then
+  PGPASSWORD=discordia psql -h "$DB_HOST" -p "$DB_PORT" -U discordia -d discordia_metrics_contract -q -v ON_ERROR_STOP=1 -f "$SEED"
+else
+  docker exec -i contract-metrics-pg psql -U discordia -d discordia_metrics_contract -q -v ON_ERROR_STOP=1 <"$SEED"
+fi
+SEEDED_SERVER="00000000-0000-4000-8000-0000000000c1"
+RANGE="from=2026-01-01T00:00:00Z&to=2026-01-15T00:00:00Z"
+body="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/v1/servers/$SEEDED_SERVER/metrics?$RANGE")"
+case "$body" in
+  *'"messages_sent":4'*) ;;
+  *)
+    echo "contract-test: los datos sembrados no llegaron a las metricas: $body" >&2
+    exit 1
+    ;;
+esac
+CONTRACT_SEEDED=1 SCHEMATHESIS_HOOKS=scripts.contract.hooks PYTHONPATH=. "$ST" run openapi.yaml \
+  --url "$BASE" \
+  -H "Authorization: Bearer $TOKEN" \
+  --max-examples "$MAX_EXAMPLES" \
+  --seed 1 \
+  --checks all \
+  --exclude-checks positive_data_acceptance,negative_data_rejection,unsupported_method \
+  --include-path-regex '^/v1/(servers/[^/]+/metrics|metrics/global)' \
+  --report junit,har --report-dir "$REPORT_DIR"
+
+# Cobertura de camino feliz: cuantas operaciones del contrato obtuvieron un 2xx real.
+"$PY_VENV" scripts/contract/coverage.py openapi.yaml "$REPORT_DIR"/har-*.json

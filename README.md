@@ -197,6 +197,13 @@ con el motivo en `scripts/contract-test.sh`: `positive_data_acceptance`,
 `negative_data_rejection` y `unsupported_method`. En el CI corre el job
 `contract`, en paralelo a `test` y sin `secrets`.
 
+El script hace dos corridas. La primera usa ids y fechas al azar. La segunda
+siembra eventos de prueba (`scripts/contract/seed.sql`) y fija el servidor y el
+período de esos datos con un hook (`scripts/contract/hooks.py`), para validar
+contra el contrato respuestas con contadores distintos de cero. Al final
+`scripts/contract/coverage.py` cuenta, con el HAR de Schemathesis, cuántas
+operaciones obtuvieron al menos un 2xx real, y el script falla si alguna no.
+
 ## Más documentación
 
 En este repositorio:

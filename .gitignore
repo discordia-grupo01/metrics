@@ -9,3 +9,5 @@
 /.contract-metrics-api.exe
 /.schemathesis/
 /schemathesis-report/
+
+__pycache__/
