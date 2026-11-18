@@ -133,15 +133,13 @@ expect_status 200 -H "Authorization: Bearer $USER_TOKEN" "$BASE/v1/status"
 #  - negative_data_rejection: el servicio toma `from=` / `to=` vacios como "no enviado"
 #    y usa el valor por defecto (contrato: OpenAPI 3.0 lo permite con allowEmptyValue,
 #    pero swag no puede generarlo). Rechazarlos cambiaria lo que ve un cliente.
-#  - unsupported_method: Gin responde 404 (no 405) a un metodo no declarado; activar
-#    HandleMethodNotAllowed cambia el status que ve el cliente.
 "$ST" run openapi.yaml \
   --url "$BASE" \
   -H "Authorization: Bearer $TOKEN" \
   --max-examples "$MAX_EXAMPLES" \
   --seed 1 \
   --checks all \
-  --exclude-checks positive_data_acceptance,negative_data_rejection,unsupported_method \
+  --exclude-checks positive_data_acceptance,negative_data_rejection \
   --report junit,har --report-dir "$REPORT_DIR"
 
 # Segunda corrida con datos reales: se siembran eventos y un hook fija el servidor y
@@ -169,7 +167,7 @@ CONTRACT_SEEDED=1 SCHEMATHESIS_HOOKS=scripts.contract.hooks PYTHONPATH=. "$ST" r
   --max-examples "$MAX_EXAMPLES" \
   --seed 1 \
   --checks all \
-  --exclude-checks positive_data_acceptance,negative_data_rejection,unsupported_method \
+  --exclude-checks positive_data_acceptance,negative_data_rejection \
   --include-path-regex '^/v1/(servers/[^/]+/metrics|metrics/global)' \
   --report junit,har --report-dir "$REPORT_DIR"
 

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/discordia-grupo01/metrics/internal/apierr"
 	"github.com/discordia-grupo01/metrics/internal/events"
 	"github.com/discordia-grupo01/metrics/internal/health"
 	"github.com/discordia-grupo01/metrics/internal/logging"
@@ -15,6 +17,7 @@ import (
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 )
 
@@ -48,7 +51,7 @@ type ServiceHealthResponse struct {
 func (h *Handler) ServiceHealth(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
+		apierr.Forbidden(c)
 		return
 	}
 	if h.health == nil {
@@ -72,6 +75,7 @@ func (h *Handler) ServiceHealth(c *gin.Context) {
 // @Failure      400  {object}  model.ErrorResponse  "Servidor o período inválidos"
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/servers/{serverId}/metrics [get]
 func (h *Handler) ServerSummary(c *gin.Context) {
 	from, to, ok := h.period(c)
@@ -99,6 +103,7 @@ func (h *Handler) ServerSummary(c *gin.Context) {
 // @Failure      400  {object}  model.ErrorResponse   "Servidor o período inválidos"
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/servers/{serverId}/metrics/growth [get]
 func (h *Handler) ServerGrowth(c *gin.Context) {
 	from, to, ok := h.period(c)
@@ -127,6 +132,7 @@ func (h *Handler) ServerGrowth(c *gin.Context) {
 // @Failure      400  {object}  model.ErrorResponse  "Servidor o período inválidos"
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/servers/{serverId}/metrics/export.csv [get]
 func (h *Handler) Export(c *gin.Context) {
 	from, to, ok := h.period(c)
@@ -138,7 +144,11 @@ func (h *Handler) Export(c *gin.Context) {
 		return
 	}
 	if err := service.WriteCSV(c.Writer, summary); err != nil {
-		c.Error(err)
+		logging.Errorf("csv export failed: %v", err)
+		_ = c.Error(err)
+		if !c.Writer.Written() {
+			apierr.Internal(c)
+		}
 	}
 }
 
@@ -155,11 +165,12 @@ func (h *Handler) Export(c *gin.Context) {
 // @Failure      400  {object}  model.ErrorResponse  "Período inválido"
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/metrics/global [get]
 func (h *Handler) Global(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
+		apierr.Forbidden(c)
 		return
 	}
 	from, to, ok := h.period(c)
@@ -182,6 +193,7 @@ func (h *Handler) Global(c *gin.Context) {
 // @Security     BearerAuth
 // @Success      200  {object}  model.PlatformStatusResponse  "Estado e incidentes activos"
 // @Failure      401  {object}  model.ErrorResponse           "Falta una credencial válida"
+// @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/status [get]
 func (h *Handler) Incidents(c *gin.Context) {
 	incidents, err := h.repo.Incidents(c, true)
@@ -208,27 +220,29 @@ func (h *Handler) Incidents(c *gin.Context) {
 // @Failure      400  {object}  model.ErrorResponse  "Cuerpo inválido o fuera de los límites de largo"
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/metrics/incidents [post]
 func (h *Handler) CreateIncident(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
+		apierr.Forbidden(c)
 		return
 	}
 	var input model.IncidentInput
-	if c.ShouldBindJSON(&input) != nil ||
+	bindErr := c.ShouldBindJSON(&input)
+	if bindErr != nil ||
 		strings.TrimSpace(input.Title) == "" ||
 		strings.TrimSpace(input.Description) == "" ||
 		len([]rune(strings.TrimSpace(input.Title))) > 160 ||
 		len([]rune(strings.TrimSpace(input.Description))) > 5000 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "title and description are required and within their length limits"})
+		invalidIncident(c, input, bindErr)
 		return
 	}
 	if input.PlatformStatus == "" {
 		input.PlatformStatus = model.PlatformDegraded
 	}
 	if !validPlatformStatus(input.PlatformStatus) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "platform_status must be operational, degraded, or maintenance"})
+		apierr.InvalidBody(c, "platform_status", "invalid_value", "El estado de la plataforma debe ser operational, degraded o maintenance.")
 		return
 	}
 	incident, err := h.repo.CreateIncident(c, input)
@@ -256,15 +270,16 @@ func validPlatformStatus(value string) bool {
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
 // @Failure      404  {object}  model.ErrorResponse  "El incidente no existe o ya estaba resuelto"
+// @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/metrics/incidents/{id}/resolve [post]
 func (h *Handler) ResolveIncident(c *gin.Context) {
 	authorizer := c.MustGet("authorizer").(service.Authorizer)
 	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
+		apierr.Forbidden(c)
 		return
 	}
 	if _, err := uuid.Parse(c.Param("id")); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid incident id"})
+		apierr.InvalidParameter(c, "id", "El identificador del incidente no es un UUID válido.")
 		return
 	}
 	if h.respondError(c, h.repo.ResolveIncident(c, c.Param("id"))) {
@@ -295,12 +310,48 @@ func (h *Handler) publishStatusChanged(c *gin.Context, status string) {
 }
 
 func (h *Handler) period(c *gin.Context) (from, to time.Time, ok bool) {
-	from, to, err := service.ParsePeriod(c.Request.URL.Query(), time.Now())
+	query := c.Request.URL.Query()
+	from, to, err := service.ParsePeriod(query, time.Now())
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		invalidPeriod(c, query)
 		return from, to, false
 	}
 	return from, to, true
+}
+
+func invalidPeriod(c *gin.Context, query url.Values) {
+	apierr.InvalidQuery(c, periodParam(query),
+		"El período es inválido: from y to deben ser fechas RFC3339, from anterior a to, con un máximo de 366 días.")
+}
+
+// periodParam indica el parámetro del período al que se atribuye el error:
+// from si no parsea como RFC3339 y, en cualquier otro caso, to.
+func periodParam(query url.Values) string {
+	if value := query.Get("from"); value != "" {
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			return "from"
+		}
+	}
+	return "to"
+}
+
+// invalidIncident responde 400 INVALID_BODY con el primer campo inválido del incidente.
+func invalidIncident(c *gin.Context, input model.IncidentInput, bindErr error) {
+	title := strings.TrimSpace(input.Title)
+	description := strings.TrimSpace(input.Description)
+	var validation validator.ValidationErrors
+	switch {
+	case bindErr != nil && !errors.As(bindErr, &validation):
+		apierr.InvalidBody(c, "", "", "El cuerpo de la solicitud no es un JSON válido.")
+	case title == "":
+		apierr.InvalidBody(c, "title", "required", "El título es obligatorio.")
+	case len([]rune(title)) > 160:
+		apierr.InvalidBody(c, "title", "too_long", "El título no puede superar los 160 caracteres.")
+	case description == "":
+		apierr.InvalidBody(c, "description", "required", "La descripción es obligatoria.")
+	default:
+		apierr.InvalidBody(c, "description", "too_long", "La descripción no puede superar los 5000 caracteres.")
+	}
 }
 
 func (h *Handler) respondError(c *gin.Context, err error) bool {
@@ -308,19 +359,21 @@ func (h *Handler) respondError(c *gin.Context, err error) bool {
 		return false
 	}
 	if errors.Is(err, context.Canceled) {
+		// El cliente cortó la conexión: nadie lee el body, pero no se deja un 200 implícito.
+		c.AbortWithStatus(apierr.StatusClientClosedRequest)
 		return true
 	}
 	switch {
 	case errors.Is(err, service.ErrInvalidID):
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apierr.InvalidParameter(c, "serverId", "El identificador del servidor no es un UUID válido.")
 	case errors.Is(err, service.ErrInvalidPeriod):
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		invalidPeriod(c, c.Request.URL.Query())
 	case errors.Is(err, service.ErrForbidden):
-		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
+		apierr.Forbidden(c)
 	case errors.Is(err, repository.ErrIncidentNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		apierr.Abort(c, http.StatusNotFound, apierr.CodeIncidentNotFound, "El incidente no existe o ya fue resuelto.", nil)
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		apierr.Internal(c)
 	}
 	return true
 }

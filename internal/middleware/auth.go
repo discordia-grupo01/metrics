@@ -3,9 +3,9 @@ package middleware
 import (
 	"encoding/base64"
 	"encoding/json"
-	"net/http"
 	"strings"
 
+	"github.com/discordia-grupo01/metrics/internal/apierr"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,7 +21,7 @@ func Auth(userHeader string) gin.HandlerFunc {
 			userID = bearerSubject(c.GetHeader("Authorization"))
 		}
 		if userID == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing authentication credential"})
+			apierr.Unauthorized(c)
 			return
 		}
 		c.Set(userIDKey, userID)
