@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/discordia-grupo01/metrics/internal/apierr"
 	"github.com/discordia-grupo01/metrics/internal/events"
 	"github.com/discordia-grupo01/metrics/internal/handler"
 	"github.com/discordia-grupo01/metrics/internal/health"
@@ -32,7 +33,7 @@ import (
 // @description
 // @description  Las métricas de servidor, las métricas globales, la salud de los servicios y la gestión de incidentes requieren un usuario de staff según la proyección local sincronizada desde admin. `GET /v1/status` solo exige estar autenticado.
 // @description
-// @description  Todos los errores tienen la forma `{"error": "texto"}`.
+// @description  Todos los errores (status 4xx y 5xx de las rutas `/v1/**`, incluidos 404 de ruta inexistente y 405) tienen la forma `{"error": {"code", "message", "details"}}`. `code` es un texto estable en SCREAMING_SNAKE_CASE, `message` es legible y `details` es siempre un objeto. `/livez` y `/readyz` conservan su formato `{"status": ...}`.
 // @host         localhost:8080
 // @schemes      http
 // @BasePath     /
@@ -115,6 +116,7 @@ func main() {
 
 	router := gin.New()
 	router.Use(telemetry.Middleware(), logging.Middleware(), logging.Recovery())
+	apierr.Register(router)
 	router.GET("/livez", handler.Livez)
 	router.GET("/readyz", handler.Readyz(db))
 	auth := router.Group("/v1", middleware.Auth(cfg.userIDHeader))
