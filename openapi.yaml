@@ -11,7 +11,7 @@ info:
     Las métricas de servidor, las métricas globales, la salud de los servicios y la gestión de incidentes requieren un usuario de staff según la proyección local sincronizada desde admin. `GET /v1/status` solo exige estar autenticado.
 
 
-    Todos los errores tienen la forma `{"error": "texto"}`.
+    Todos los errores (status 4xx y 5xx de las rutas `/v1/**`, incluidos 404 de ruta inexistente y 405) tienen la forma `{"error": {"code", "message", "details"}}`. `code` es un texto estable en SCREAMING_SNAKE_CASE, `message` es legible y `details` es siempre un objeto. `/livez` y `/readyz` conservan su formato `{"status": ...}`.
   title: Discordia - Metrics
   version: 1.0.0
 paths:
@@ -121,6 +121,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/model.ErrorResponse"
+        "500":
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
       security:
         - BearerAuth: []
       summary: Consultar métricas globales de la plataforma
@@ -158,6 +164,12 @@ paths:
                 $ref: "#/components/schemas/model.ErrorResponse"
         "403":
           description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "500":
+          description: Error interno del servidor
           content:
             application/json:
               schema:
@@ -201,6 +213,12 @@ paths:
                 $ref: "#/components/schemas/model.ErrorResponse"
         "404":
           description: El incidente no existe o ya estaba resuelto
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "500":
+          description: Error interno del servidor
           content:
             application/json:
               schema:
@@ -258,6 +276,12 @@ paths:
                 $ref: "#/components/schemas/model.ErrorResponse"
         "403":
           description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "500":
+          description: Error interno del servidor
           content:
             application/json:
               schema:
@@ -336,6 +360,15 @@ paths:
             text/csv:
               schema:
                 $ref: "#/components/schemas/model.ErrorResponse"
+        "500":
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+            text/csv:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
       security:
         - BearerAuth: []
       summary: Exportar métricas de un servidor a CSV
@@ -393,6 +426,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/model.ErrorResponse"
+        "500":
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
       security:
         - BearerAuth: []
       summary: Consultar el crecimiento diario de miembros
@@ -415,6 +454,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/model.ErrorResponse"
+        "500":
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
       security:
         - BearerAuth: []
       summary: Consultar el estado actual de la plataforma
@@ -430,6 +475,22 @@ components:
       name: Authorization
       type: apiKey
   schemas:
+    apierr.Body:
+      properties:
+        code:
+          example: FORBIDDEN
+          type: string
+        details:
+          additionalProperties: {}
+          type: object
+        message:
+          example: No tenés permisos de staff para realizar esta acción.
+          type: string
+      required:
+        - code
+        - details
+        - message
+      type: object
     handler.ServiceHealthResponse:
       properties:
         services:
@@ -463,8 +524,7 @@ components:
     model.ErrorResponse:
       properties:
         error:
-          example: staff role required
-          type: string
+          $ref: "#/components/schemas/apierr.Body"
       required:
         - error
       type: object
