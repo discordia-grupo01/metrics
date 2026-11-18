@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/discordia-grupo01/metrics/internal/apierr/apierrtest"
 	"github.com/discordia-grupo01/metrics/internal/logging"
 )
 
@@ -343,6 +344,9 @@ func TestRecoveryReturns500WithoutLeakingHeaders(t *testing.T) {
 
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status: %d", recorder.Code)
+	}
+	if code, details := apierrtest.Envelope(t, recorder); code != "INTERNAL_ERROR" || len(details) != 0 {
+		t.Errorf("code = %q details = %v, want INTERNAL_ERROR with empty details", code, details)
 	}
 	line := buf.String()
 	for _, leaked := range []string{"super-secreto", "galleta-secreta", "a@b.com"} {
