@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/discordia-grupo01/metrics/internal/apierr"
+)
 
 type ServerSummary struct {
 	From time.Time `json:"from" format:"date-time"`
@@ -89,10 +93,9 @@ type PlatformStatusResponse struct {
 	Incidents []Incident `json:"incidents"`
 }
 
-// ErrorResponse es el cuerpo de todos los errores del servicio.
-type ErrorResponse struct {
-	Error string `json:"error" example:"staff role required"`
-}
+// ErrorResponse es el cuerpo de todos los errores del servicio:
+// {"error": {"code", "message", "details"}}.
+type ErrorResponse = apierr.ErrorResponse
 
 // StatusResponse es el cuerpo de /readyz.
 type StatusResponse struct {

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/discordia-grupo01/metrics/internal/apierr"
+	"github.com/discordia-grupo01/metrics/internal/apierr/apierrtest"
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
 	"github.com/gin-gonic/gin"
@@ -20,12 +22,13 @@ func TestRespondErrorMapsKnownErrors(t *testing.T) {
 		name       string
 		err        error
 		wantStatus int
+		wantCode   string
 	}{
-		{name: "invalid period", err: service.ErrInvalidPeriod, wantStatus: 400},
-		{name: "invalid id", err: service.ErrInvalidID, wantStatus: 400},
-		{name: "forbidden", err: service.ErrForbidden, wantStatus: 403},
-		{name: "incident not found", err: repository.ErrIncidentNotFound, wantStatus: 404},
-		{name: "internal error", err: errors.New("database failure"), wantStatus: 500},
+		{name: "invalid period", err: service.ErrInvalidPeriod, wantStatus: 400, wantCode: "INVALID_QUERY"},
+		{name: "invalid id", err: service.ErrInvalidID, wantStatus: 400, wantCode: "INVALID_PARAMETER"},
+		{name: "forbidden", err: service.ErrForbidden, wantStatus: 403, wantCode: "FORBIDDEN"},
+		{name: "incident not found", err: repository.ErrIncidentNotFound, wantStatus: 404, wantCode: "INCIDENT_NOT_FOUND"},
+		{name: "internal error", err: errors.New("database failure"), wantStatus: 500, wantCode: "INTERNAL_ERROR"},
 	}
 
 	for _, test := range tests {
@@ -38,6 +41,9 @@ func TestRespondErrorMapsKnownErrors(t *testing.T) {
 			}
 			if response.Code != test.wantStatus {
 				t.Fatalf("status = %d, want %d", response.Code, test.wantStatus)
+			}
+			if code, _ := apierrtest.Envelope(t, response); code != test.wantCode {
+				t.Fatalf("code = %q, want %q", code, test.wantCode)
 			}
 		})
 	}
@@ -53,8 +59,11 @@ func TestRespondErrorDoesNotExposeInternalDetails(t *testing.T) {
 	if response.Code != 500 {
 		t.Fatalf("status = %d, want 500", response.Code)
 	}
-	if response.Body.String() != `{"error":"internal server error"}` {
-		t.Fatalf("body = %q, want generic error", response.Body.String())
+	if strings.Contains(response.Body.String(), "postgres") {
+		t.Fatalf("body = %q leaks the internal error", response.Body.String())
+	}
+	if code, details := apierrtest.Envelope(t, response); code != "INTERNAL_ERROR" || len(details) != 0 {
+		t.Fatalf("code = %q details = %v, want INTERNAL_ERROR with empty details", code, details)
 	}
 }
 
@@ -76,8 +85,8 @@ func TestRespondErrorIgnoresCanceledRequests(t *testing.T) {
 	if !handler.respondError(context, contextCanceledError()) {
 		t.Fatal("respondError returned false")
 	}
-	if response.Code != 200 {
-		t.Fatalf("status = %d, want no response", response.Code)
+	if response.Code != apierr.StatusClientClosedRequest {
+		t.Fatalf("status = %d, want %d", response.Code, apierr.StatusClientClosedRequest)
 	}
 }
 
@@ -92,6 +101,13 @@ func TestPeriodRejectsInvalidQuery(t *testing.T) {
 	}
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+	code, details := apierrtest.Envelope(t, response)
+	if code != "INVALID_QUERY" || details["param"] != "from" {
+		t.Fatalf("code = %q details = %v, want INVALID_QUERY on from", code, details)
+	}
+	if strings.Contains(response.Body.String(), "parsing time") {
+		t.Fatalf("body = %q leaks the parser error", response.Body.String())
 	}
 }
 
@@ -123,6 +139,10 @@ func TestResolveIncidentRejectsInvalidIDBeforeRepository(t *testing.T) {
 	handler.ResolveIncident(context)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+	code, details := apierrtest.Envelope(t, response)
+	if code != "INVALID_PARAMETER" || details["param"] != "id" {
+		t.Fatalf("code = %q details = %v, want INVALID_PARAMETER on id", code, details)
 	}
 }
 
@@ -161,20 +181,24 @@ func TestStaffEndpointsRejectNonStaff(t *testing.T) {
 			if response.Code != http.StatusForbidden {
 				t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
 			}
+			if code, details := apierrtest.Envelope(t, response); code != "FORBIDDEN" || len(details) != 0 {
+				t.Fatalf("code = %q details = %v, want FORBIDDEN with empty details", code, details)
+			}
 		})
 	}
 }
 
 func TestCreateIncidentRejectsInvalidInput(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
+		name      string
+		body      string
+		wantField string
 	}{
 		{name: "malformed json", body: "{"},
-		{name: "missing title", body: `{"description":"outage"}`},
-		{name: "missing description", body: `{"title":"outage"}`},
-		{name: "invalid status", body: `{"title":"outage","description":"details","platform_status":"unknown"}`},
-		{name: "title too long", body: `{"title":"` + strings.Repeat("x", 161) + `","description":"details"}`},
+		{name: "missing title", body: `{"description":"outage"}`, wantField: "title"},
+		{name: "missing description", body: `{"title":"outage"}`, wantField: "description"},
+		{name: "invalid status", body: `{"title":"outage","description":"details","platform_status":"unknown"}`, wantField: "platform_status"},
+		{name: "title too long", body: `{"title":"` + strings.Repeat("x", 161) + `","description":"details"}`, wantField: "title"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -187,6 +211,16 @@ func TestCreateIncidentRejectsInvalidInput(t *testing.T) {
 			(&Handler{}).CreateIncident(context)
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+			}
+			code, details := apierrtest.Envelope(t, response)
+			if code != "INVALID_BODY" {
+				t.Fatalf("code = %q, want INVALID_BODY", code)
+			}
+			if test.wantField == "" && len(details) != 0 {
+				t.Fatalf("details = %v, want {} for malformed JSON", details)
+			}
+			if test.wantField != "" && details["field"] != test.wantField {
+				t.Fatalf("details = %v, want field %q", details, test.wantField)
 			}
 		})
 	}
@@ -213,6 +247,9 @@ func TestMetricEndpointsRejectInvalidPeriod(t *testing.T) {
 			test.call(&Handler{}, context)
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+			}
+			if code, details := apierrtest.Envelope(t, response); code != "INVALID_QUERY" || details["param"] != "from" {
+				t.Fatalf("code = %q details = %v, want INVALID_QUERY on from", code, details)
 			}
 		})
 	}
@@ -252,9 +289,22 @@ func testContext() (*gin.Context, *httptest.ResponseRecorder) {
 	gin.SetMode(gin.TestMode)
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	return context, response
 }
 
 func contextCanceledError() error {
 	return context.Canceled
+}
+
+func TestExportRejectsInvalidPeriodWithEnvelopeInsteadOfCSV(t *testing.T) {
+	context, response := testContext()
+	context.Set("authorizer", testAuthorizer{staff: true})
+	context.Params = gin.Params{{Key: "serverId", Value: uuidForTest()}}
+	context.Request = httptest.NewRequest(http.MethodGet, "/?to=invalid", nil)
+
+	(&Handler{}).Export(context)
+	if code, details := apierrtest.Envelope(t, response); code != "INVALID_QUERY" || details["param"] != "to" {
+		t.Fatalf("code = %q details = %v, want INVALID_QUERY on to", code, details)
+	}
 }
