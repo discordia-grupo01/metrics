@@ -222,10 +222,10 @@ func TestResolveIncidentReportsMissingIncident(t *testing.T) {
 	db, mock := newRepositoryMock(t)
 	defer db.Close()
 	mock.ExpectExec("UPDATE incidents SET status").
-		WithArgs("incident-id").
+		WithArgs("incident-id", "staff-id").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	if err := New(db).ResolveIncident(context.Background(), "incident-id"); !errors.Is(err, ErrIncidentNotFound) {
+	if err := New(db).ResolveIncident(context.Background(), "incident-id", "staff-id"); !errors.Is(err, ErrIncidentNotFound) {
 		t.Fatalf("ResolveIncident error = %v, want ErrIncidentNotFound", err)
 	}
 }
@@ -235,8 +235,8 @@ func TestIncidentsSupportsAllStatuses(t *testing.T) {
 	defer db.Close()
 	now := time.Now().UTC()
 	mock.ExpectQuery("SELECT id,title,description,affected_services,platform_status,status,created_at,resolved_at").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "description", "affected_services", "platform_status", "status", "created_at", "resolved_at"}).
-			AddRow("id", "title", "description", "{api,db}", "maintenance", "resolved", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "description", "affected_services", "platform_status", "status", "created_at", "resolved_at", "created_by", "resolved_by"}).
+			AddRow("id", "title", "description", "{api,db}", "maintenance", "resolved", now, now, nil, nil))
 
 	incidents, err := New(db).Incidents(context.Background(), false)
 	if err != nil {
@@ -274,11 +274,11 @@ func TestCreateIncidentWithoutServicesInsertsEmptyList(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectQuery("INSERT INTO incidents").
-		WithArgs(sqlmock.AnyArg(), "title", "description", nonNilSlice{}, "degraded").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "description", "affected_services", "platform_status", "status", "created_at", "resolved_at"}).
-			AddRow("incident-id", "title", "description", "{}", "degraded", "active", time.Now().UTC(), nil))
+		WithArgs(sqlmock.AnyArg(), "title", "description", nonNilSlice{}, "degraded", "staff-id").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "description", "affected_services", "platform_status", "status", "created_at", "resolved_at", "created_by", "resolved_by"}).
+			AddRow("incident-id", "title", "description", "{}", "degraded", "active", time.Now().UTC(), nil, "staff-id", nil))
 
-	_, err = New(db).CreateIncident(context.Background(), model.IncidentInput{Title: "title", Description: "description", PlatformStatus: "degraded"})
+	_, err = New(db).CreateIncident(context.Background(), model.IncidentInput{Title: "title", Description: "description", PlatformStatus: "degraded"}, "staff-id")
 	if err != nil {
 		t.Fatal(err)
 	}

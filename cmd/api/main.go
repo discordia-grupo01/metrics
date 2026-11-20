@@ -127,6 +127,7 @@ func main() {
 	auth.GET("/metrics/global", h.Global)
 	auth.GET("/status", h.Incidents)
 	auth.GET("/health/services", h.ServiceHealth)
+	auth.GET("/metrics/incidents", h.IncidentHistory)
 	auth.POST("/metrics/incidents", h.CreateIncident)
 	auth.POST("/metrics/incidents/:id/resolve", h.ResolveIncident)
 

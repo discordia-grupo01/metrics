@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/discordia-grupo01/metrics/internal/apierr"
 	"github.com/discordia-grupo01/metrics/internal/events"
@@ -204,7 +206,125 @@ func (h *Handler) Incidents(c *gin.Context) {
 	if len(incidents) > 0 {
 		platformStatus = incidents[0].PlatformStatus
 	}
+	for index := range incidents {
+		incidents[index] = incidents[index].WithoutAuthors()
+	}
 	c.JSON(http.StatusOK, model.PlatformStatusResponse{Status: platformStatus, Incidents: incidents})
+}
+
+const (
+	incidentHistoryDefaultLimit = 20
+	incidentHistoryMaxLimit     = 100
+	incidentHistorySearchMax    = 100
+)
+
+// IncidentHistory lista los incidentes resueltos.
+//
+// @Summary      Listar el historial de incidentes resueltos
+// @Description  Requiere staff. Devuelve los incidentes resueltos del más nuevo al más viejo, paginados. `created_by` y `resolved_by` son los ids del staff que lo publicó y lo resolvió; faltan en los incidentes anteriores a guardar ese dato.
+// @Tags         Incidents
+// @Produce      json
+// @Security     BearerAuth
+// @Param        search   query  string  false  "Busca en el título y la descripción (hasta 100 caracteres)"  maxlength(100)
+// @Param        type     query  string  false  "Tipo de incidente"  Enums(degraded, maintenance)
+// @Param        service  query  string  false  "Id de un servicio afectado"
+// @Param        from     query  string  false  "Solo incidentes creados desde esta fecha (RFC3339)"  format(date-time)
+// @Param        limit    query  int     false  "Tamaño de página"  minimum(1)  maximum(100)  default(20)
+// @Param        offset   query  int     false  "Cantidad de incidentes a saltear"  minimum(0)  default(0)
+// @Success      200  {object}  model.IncidentPage   "Página del historial"
+// @Failure      400  {object}  model.ErrorResponse  "Algún parámetro de la query es inválido"
+// @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
+// @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
+// @Router       /v1/metrics/incidents [get]
+func (h *Handler) IncidentHistory(c *gin.Context) {
+	authorizer := c.MustGet("authorizer").(service.Authorizer)
+	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
+		apierr.Forbidden(c)
+		return
+	}
+	filter, invalid := parseIncidentHistoryFilter(c.Request.URL.Query())
+	if invalid != nil {
+		apierr.InvalidQuery(c, invalid.param, invalid.message)
+		return
+	}
+	page, err := h.repo.ResolvedIncidents(c, filter)
+	if h.respondError(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, page)
+}
+
+// isStorableText descarta lo que Postgres no acepta en un texto (UTF-8
+// inválido o el byte NUL): llegaría como error 500 en vez de un 400.
+func isStorableText(value string) bool {
+	return utf8.ValidString(value) && !strings.ContainsRune(value, 0)
+}
+
+// unstorableIncidentField devuelve el primer campo de texto que Postgres no
+// podría guardar.
+func unstorableIncidentField(input model.IncidentInput) (string, bool) {
+	if !isStorableText(input.Title) {
+		return "title", true
+	}
+	if !isStorableText(input.Description) {
+		return "description", true
+	}
+	for _, service := range input.AffectedServices {
+		if !isStorableText(service) {
+			return "affected_services", true
+		}
+	}
+	return "", false
+}
+
+type invalidHistoryParam struct {
+	param   string
+	message string
+}
+
+func parseIncidentHistoryFilter(values url.Values) (model.IncidentHistoryFilter, *invalidHistoryParam) {
+	filter := model.IncidentHistoryFilter{
+		Search:  strings.TrimSpace(values.Get("search")),
+		Type:    values.Get("type"),
+		Service: values.Get("service"),
+		Limit:   incidentHistoryDefaultLimit,
+	}
+	if !isStorableText(filter.Search) {
+		return filter, &invalidHistoryParam{"search", "La búsqueda tiene caracteres inválidos."}
+	}
+	if len([]rune(filter.Search)) > incidentHistorySearchMax {
+		return filter, &invalidHistoryParam{"search", "La búsqueda no puede superar los 100 caracteres."}
+	}
+	if !isStorableText(filter.Service) {
+		return filter, &invalidHistoryParam{"service", "El servicio tiene caracteres inválidos."}
+	}
+	if filter.Type != "" && filter.Type != model.PlatformDegraded && filter.Type != model.PlatformMaintenance {
+		return filter, &invalidHistoryParam{"type", "El tipo debe ser degraded o maintenance."}
+	}
+	if value := values.Get("from"); value != "" {
+		from, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return filter, &invalidHistoryParam{"from", "from debe ser una fecha RFC3339."}
+		}
+		from = from.UTC()
+		filter.From = &from
+	}
+	if value := values.Get("limit"); value != "" {
+		limit, err := strconv.Atoi(value)
+		if err != nil || limit < 1 || limit > incidentHistoryMaxLimit {
+			return filter, &invalidHistoryParam{"limit", "limit debe ser un entero entre 1 y 100."}
+		}
+		filter.Limit = limit
+	}
+	if value := values.Get("offset"); value != "" {
+		offset, err := strconv.Atoi(value)
+		if err != nil || offset < 0 {
+			return filter, &invalidHistoryParam{"offset", "offset debe ser un entero mayor o igual a 0."}
+		}
+		filter.Offset = offset
+	}
+	return filter, nil
 }
 
 // CreateIncident publica un incidente.
@@ -238,6 +358,10 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 		invalidIncident(c, input, bindErr)
 		return
 	}
+	if field, ok := unstorableIncidentField(input); ok {
+		apierr.InvalidBody(c, field, "invalid_characters", "El campo tiene caracteres inválidos.")
+		return
+	}
 	if input.PlatformStatus == "" {
 		input.PlatformStatus = model.PlatformDegraded
 	}
@@ -245,7 +369,7 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 		apierr.InvalidBody(c, "platform_status", "invalid_value", "El estado de la plataforma debe ser operational, degraded o maintenance.")
 		return
 	}
-	incident, err := h.repo.CreateIncident(c, input)
+	incident, err := h.repo.CreateIncident(c, input, middleware.UserID(c))
 	if h.respondError(c, err) {
 		return
 	}
@@ -282,7 +406,7 @@ func (h *Handler) ResolveIncident(c *gin.Context) {
 		apierr.InvalidParameter(c, "id", "El identificador del incidente no es un UUID válido.")
 		return
 	}
-	if h.respondError(c, h.repo.ResolveIncident(c, c.Param("id"))) {
+	if h.respondError(c, h.repo.ResolveIncident(c, c.Param("id"), middleware.UserID(c))) {
 		return
 	}
 	status := model.PlatformOperational
