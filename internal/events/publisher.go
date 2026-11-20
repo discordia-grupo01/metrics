@@ -10,13 +10,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/rabbitmq/amqp091-go"
 
+	"github.com/discordia-grupo01/events-contract/broker"
+	eventenvelope "github.com/discordia-grupo01/events-contract/envelope"
+	"github.com/discordia-grupo01/events-contract/platform"
+	"github.com/discordia-grupo01/events-contract/validate"
+
+	"github.com/discordia-grupo01/metrics/internal/logging"
 	"github.com/discordia-grupo01/metrics/internal/telemetry"
 )
 
 const (
-	platformExchange   = "discordia.events"
-	platformRoutingKey = "platform.status_changed"
-	healthRoutingKey   = "platform.health_changed"
+	platformExchange   = broker.ExchangeName
+	platformRoutingKey = platform.RoutingKeyStatusChanged
+	healthRoutingKey   = platform.RoutingKeyHealthChanged
 )
 
 type Publisher interface {
@@ -33,14 +39,16 @@ type AMQPPublisher struct {
 }
 
 func (p *AMQPPublisher) PublishHealthChanged(ctx context.Context, service, previousStatus, status string, failures int, audience []string, occurredAt time.Time) error {
-	body, err := json.Marshal(map[string]any{
-		"event_id":             uuid.NewString(),
-		"occurred_at":          occurredAt.UTC(),
-		"service":              service,
-		"previous_status":      previousStatus,
-		"status":               status,
-		"consecutive_failures": failures,
-		"audience_user_ids":    audience,
+	if audience == nil {
+		audience = []string{}
+	}
+	body, err := json.Marshal(platform.HealthChanged{
+		Meta:                eventenvelope.Meta{EventID: uuid.NewString(), OccurredAt: occurredAt.UTC()},
+		Service:             service,
+		PreviousStatus:      previousStatus,
+		Status:              status,
+		ConsecutiveFailures: failures,
+		AudienceUserIDs:     audience,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal health change event: %w", err)
@@ -53,10 +61,9 @@ func NewAMQPPublisher(url string) *AMQPPublisher {
 }
 
 func (p *AMQPPublisher) PublishStatusChanged(ctx context.Context, status string, occurredAt time.Time) error {
-	body, err := json.Marshal(map[string]any{
-		"event_id":    uuid.NewString(),
-		"occurred_at": occurredAt.UTC(),
-		"status":      status,
+	body, err := json.Marshal(platform.StatusChanged{
+		Meta:   eventenvelope.Meta{EventID: uuid.NewString(), OccurredAt: occurredAt.UTC()},
+		Status: status,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal platform status event: %w", err)
@@ -65,6 +72,9 @@ func (p *AMQPPublisher) PublishStatusChanged(ctx context.Context, status string,
 }
 
 func (p *AMQPPublisher) publish(ctx context.Context, routingKey string, body []byte) error {
+	if err := validate.Validate(routingKey, body); err != nil {
+		logging.Warnf("metrics event %s does not meet the event contract: %v", routingKey, err)
+	}
 	channel, err := p.getChannel()
 	if err != nil {
 		return fmt.Errorf("connect to RabbitMQ: %w", err)

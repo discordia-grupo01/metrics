@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/discordia-grupo01/metrics/internal/apierr"
 	"github.com/discordia-grupo01/metrics/internal/events"
 	"github.com/discordia-grupo01/metrics/internal/handler"
 	"github.com/discordia-grupo01/metrics/internal/health"
@@ -24,6 +25,22 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
+// @title        Discordia - Metrics
+// @version      1.0.0
+// @description  API de métricas de actividad y estado de plataforma de Discordia.
+// @description
+// @description  El servicio mantiene una proyección local de eventos publicados en RabbitMQ; no accede directamente a las bases de datos de otros servicios. Kong valida el JWT en el gateway: las rutas `/v1/**` requieren `Authorization: Bearer <JWT>`; el servicio solo lee el `sub` del token (o un header de usuario configurable) sin verificar la firma.
+// @description
+// @description  Las métricas de servidor, las métricas globales, la salud de los servicios y la gestión de incidentes requieren un usuario de staff según la proyección local sincronizada desde admin. `GET /v1/status` solo exige estar autenticado.
+// @description
+// @description  Todos los errores (status 4xx y 5xx de las rutas `/v1/**`, incluidos 404 de ruta inexistente y 405) tienen la forma `{"error": {"code", "message", "details"}}`. `code` es un texto estable en SCREAMING_SNAKE_CASE, `message` es legible y `details` es siempre un objeto. `/livez` y `/readyz` conservan su formato `{"status": ...}`.
+// @host         localhost:8080
+// @schemes      http
+// @BasePath     /
+// @securityDefinitions.apikey  BearerAuth
+// @in                          header
+// @name                        Authorization
+// @description                 Escribir "Bearer " seguido del JWT.
 func main() {
 	logging.MustSetup("metrics")
 	defer logging.Flush()
@@ -99,14 +116,9 @@ func main() {
 
 	router := gin.New()
 	router.Use(telemetry.Middleware(), logging.Middleware(), logging.Recovery())
-	router.GET("/livez", func(c *gin.Context) { c.Status(http.StatusOK) })
-	router.GET("/readyz", func(c *gin.Context) {
-		if err := db.PingContext(c); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ready"})
-	})
+	apierr.Register(router)
+	router.GET("/livez", handler.Livez)
+	router.GET("/readyz", handler.Readyz(db))
 	auth := router.Group("/v1", middleware.Auth(cfg.userIDHeader))
 	auth.Use(func(c *gin.Context) { c.Set("authorizer", authorizer); c.Next() })
 	auth.GET("/servers/:serverId/metrics", h.ServerSummary)

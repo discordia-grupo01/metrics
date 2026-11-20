@@ -13,9 +13,14 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # contents: write para que el paso que regenera openapi.yaml pueda commitearlo.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         name: Checkout
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-go@v5
         name: Setup Go
         with:
@@ -33,8 +38,23 @@ jobs:
         run: go build ./...
       - name: Go vet
         run: go vet ./...
+      - name: Regenerar y validar openapi.yaml
+        run: make openapi
+      - name: Commitear openapi.yaml si cambió
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs(openapi): regenerate openapi.yaml [skip ci]"
+          file_pattern: openapi.yaml
       - name: Go test
-        run: go test ./... -cover
+        run: go test ./... -coverpkg=./internal/... -coverprofile=coverage.out
+      - name: Verificar cobertura minima (70%)
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "Cobertura total: ${COVERAGE}%"
+          if awk "BEGIN {exit !($COVERAGE < 70)}"; then
+            echo "::error::Cobertura ${COVERAGE}% por debajo del minimo requerido (70%)"
+            exit 1
+          fi
       - name: Build de imagen Docker
         run: docker build -t discordia-metrics:ci .
       - name: Validar configuración de Docker Compose
@@ -75,3 +95,54 @@ jobs:
       - name: Limpiar configuración de CI
         if: always()
         run: rm -f .env
+
+  # Valida con Schemathesis que el servicio cumpla openapi.yaml. Corre en paralelo
+  # a `test`, contra un Postgres y un RabbitMQ del propio job, sin secrets.
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: discordia_metrics_contract
+          POSTGRES_USER: discordia
+          POSTGRES_PASSWORD: discordia
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U discordia"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      rabbitmq:
+        image: rabbitmq:3.13-alpine
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONTRACT_DB_PORT: 5432
+      CONTRACT_MQ_PORT: 5672
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Migrar la base
+        run: go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1 -path migrations -database "postgres://discordia:discordia@localhost:5432/discordia_metrics_contract?sslmode=disable" up
+      - name: Tests de contrato (Schemathesis)
+        run: make contract-test
+      - name: Reporte de Schemathesis
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schemathesis-report
+          path: schemathesis-report/
+          if-no-files-found: ignore

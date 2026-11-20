@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/discordia-grupo01/events-contract/validate"
 	"github.com/discordia-grupo01/metrics/internal/events/deadletter"
 	"github.com/discordia-grupo01/metrics/internal/logging"
 	"github.com/discordia-grupo01/metrics/internal/repository"
@@ -104,6 +105,9 @@ func handle(ctx context.Context, repo *repository.Repository, routingKey string,
 	var event envelope
 	if err := json.Unmarshal(body, &event); err != nil {
 		return &invalidEvent{err.Error()}
+	}
+	if err := validate.Validate(routingKey, body); err != nil && !errors.Is(err, validate.ErrUnknownEvent) {
+		logging.Warnf("metrics event %s does not meet the event contract: %v", routingKey, err)
 	}
 	eventID, err := uuid.Parse(event.EventID)
 	if err != nil {
