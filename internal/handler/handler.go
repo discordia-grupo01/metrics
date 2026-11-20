@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -497,6 +498,10 @@ func (h *Handler) respondError(c *gin.Context, err error) bool {
 	case errors.Is(err, repository.ErrIncidentNotFound):
 		apierr.Abort(c, http.StatusNotFound, apierr.CodeIncidentNotFound, "El incidente no existe o ya fue resuelto.", nil)
 	default:
+		slog.ErrorContext(c.Request.Context(), "internal_error",
+			"route", c.FullPath(),
+			"error", err.Error(),
+		)
 		apierr.Internal(c)
 	}
 	return true
