@@ -200,6 +200,9 @@ func TestCreateIncidentRejectsInvalidInput(t *testing.T) {
 		{name: "missing title", body: `{"description":"outage"}`, wantField: "title"},
 		{name: "missing description", body: `{"title":"outage"}`, wantField: "description"},
 		{name: "invalid status", body: `{"title":"outage","description":"details","platform_status":"unknown"}`, wantField: "platform_status"},
+		{name: "nul in title", body: `{"title":"out\u0000age","description":"details"}`, wantField: "title"},
+		{name: "nul in description", body: `{"title":"outage","description":"\u0000"}`, wantField: "description"},
+		{name: "nul in service", body: `{"title":"outage","description":"details","affected_services":["\u0000"]}`, wantField: "affected_services"},
 		{name: "title too long", body: `{"title":"` + strings.Repeat("x", 161) + `","description":"details"}`, wantField: "title"},
 	}
 	for _, test := range tests {

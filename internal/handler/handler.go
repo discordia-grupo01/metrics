@@ -261,6 +261,23 @@ func isStorableText(value string) bool {
 	return utf8.ValidString(value) && !strings.ContainsRune(value, 0)
 }
 
+// unstorableIncidentField devuelve el primer campo de texto que Postgres no
+// podría guardar.
+func unstorableIncidentField(input model.IncidentInput) (string, bool) {
+	if !isStorableText(input.Title) {
+		return "title", true
+	}
+	if !isStorableText(input.Description) {
+		return "description", true
+	}
+	for _, service := range input.AffectedServices {
+		if !isStorableText(service) {
+			return "affected_services", true
+		}
+	}
+	return "", false
+}
+
 type invalidHistoryParam struct {
 	param   string
 	message string
@@ -339,6 +356,10 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 		len([]rune(strings.TrimSpace(input.Title))) > 160 ||
 		len([]rune(strings.TrimSpace(input.Description))) > 5000 {
 		invalidIncident(c, input, bindErr)
+		return
+	}
+	if field, ok := unstorableIncidentField(input); ok {
+		apierr.InvalidBody(c, field, "invalid_characters", "El campo tiene caracteres inválidos.")
 		return
 	}
 	if input.PlatformStatus == "" {
