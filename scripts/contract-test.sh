@@ -121,6 +121,7 @@ expect_status() {
 expect_status 401 "$BASE/v1/status"
 expect_status 403 -H "Authorization: Bearer $USER_TOKEN" "$BASE/v1/metrics/global"
 expect_status 403 -H "Authorization: Bearer $USER_TOKEN" "$BASE/v1/health/services"
+expect_status 403 -H "Authorization: Bearer $USER_TOKEN" "$BASE/v1/metrics/incidents"
 expect_status 403 -H "Authorization: Bearer $USER_TOKEN" "$BASE/v1/servers/$USER_ID/metrics"
 expect_status 403 -X POST -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
   -d '{"title":"t","description":"d"}' "$BASE/v1/metrics/incidents"

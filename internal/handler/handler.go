@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/discordia-grupo01/metrics/internal/apierr"
 	"github.com/discordia-grupo01/metrics/internal/events"
@@ -254,6 +255,12 @@ func (h *Handler) IncidentHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, page)
 }
 
+// isStorableText descarta lo que Postgres no acepta en un texto (UTF-8
+// inválido o el byte NUL): llegaría como error 500 en vez de un 400.
+func isStorableText(value string) bool {
+	return utf8.ValidString(value) && !strings.ContainsRune(value, 0)
+}
+
 type invalidHistoryParam struct {
 	param   string
 	message string
@@ -266,8 +273,14 @@ func parseIncidentHistoryFilter(values url.Values) (model.IncidentHistoryFilter,
 		Service: values.Get("service"),
 		Limit:   incidentHistoryDefaultLimit,
 	}
+	if !isStorableText(filter.Search) {
+		return filter, &invalidHistoryParam{"search", "La búsqueda tiene caracteres inválidos."}
+	}
 	if len([]rune(filter.Search)) > incidentHistorySearchMax {
 		return filter, &invalidHistoryParam{"search", "La búsqueda no puede superar los 100 caracteres."}
+	}
+	if !isStorableText(filter.Service) {
+		return filter, &invalidHistoryParam{"service", "El servicio tiene caracteres inválidos."}
 	}
 	if filter.Type != "" && filter.Type != model.PlatformDegraded && filter.Type != model.PlatformMaintenance {
 		return filter, &invalidHistoryParam{"type", "El tipo debe ser degraded o maintenance."}

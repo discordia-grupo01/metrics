@@ -342,6 +342,10 @@ func TestParseIncidentHistoryFilterRejectsInvalidValues(t *testing.T) {
 		"huge limit":       {url.Values{"limit": {"101"}}, "limit"},
 		"negative offset":  {url.Values{"offset": {"-1"}}, "offset"},
 		"long search":      {url.Values{"search": {strings.Repeat("a", incidentHistorySearchMax+1)}}, "search"},
+		"nul in search":    {url.Values{"search": {"a\x00b"}}, "search"},
+		"bad utf8 search":  {url.Values{"search": {"\xff"}}, "search"},
+		"nul in service":   {url.Values{"service": {"\x00"}}, "service"},
+		"bad utf8 service": {url.Values{"service": {"\xff\xfe"}}, "service"},
 	} {
 		_, invalid := parseIncidentHistoryFilter(tc.values)
 		if invalid == nil || invalid.param != tc.wantParam {
