@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,7 +108,74 @@ func (h *Handler) Incidents(c *gin.Context) {
 	if len(incidents) > 0 {
 		platformStatus = incidents[0].PlatformStatus
 	}
+	for index := range incidents {
+		incidents[index] = incidents[index].WithoutAuthors()
+	}
 	c.JSON(http.StatusOK, gin.H{"status": platformStatus, "incidents": incidents})
+}
+
+const (
+	incidentHistoryDefaultLimit = 20
+	incidentHistoryMaxLimit     = 100
+	incidentHistorySearchMax    = 100
+)
+
+var errInvalidHistoryFilter = errors.New("search up to 100 characters, type degraded or maintenance, from RFC3339, limit 1-100 and offset >= 0")
+
+func (h *Handler) IncidentHistory(c *gin.Context) {
+	authorizer := c.MustGet("authorizer").(service.Authorizer)
+	if !authorizer.IsStaff(c.Request.Context(), middleware.UserID(c)) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "staff role required"})
+		return
+	}
+	filter, err := parseIncidentHistoryFilter(c.Request.URL.Query())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	page, err := h.repo.ResolvedIncidents(c, filter)
+	if h.respondError(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, page)
+}
+
+func parseIncidentHistoryFilter(values url.Values) (model.IncidentHistoryFilter, error) {
+	filter := model.IncidentHistoryFilter{
+		Search:  strings.TrimSpace(values.Get("search")),
+		Type:    values.Get("type"),
+		Service: values.Get("service"),
+		Limit:   incidentHistoryDefaultLimit,
+	}
+	if len([]rune(filter.Search)) > incidentHistorySearchMax {
+		return filter, errInvalidHistoryFilter
+	}
+	if filter.Type != "" && filter.Type != model.PlatformDegraded && filter.Type != model.PlatformMaintenance {
+		return filter, errInvalidHistoryFilter
+	}
+	if value := values.Get("from"); value != "" {
+		from, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return filter, errInvalidHistoryFilter
+		}
+		from = from.UTC()
+		filter.From = &from
+	}
+	if value := values.Get("limit"); value != "" {
+		limit, err := strconv.Atoi(value)
+		if err != nil || limit < 1 || limit > incidentHistoryMaxLimit {
+			return filter, errInvalidHistoryFilter
+		}
+		filter.Limit = limit
+	}
+	if value := values.Get("offset"); value != "" {
+		offset, err := strconv.Atoi(value)
+		if err != nil || offset < 0 {
+			return filter, errInvalidHistoryFilter
+		}
+		filter.Offset = offset
+	}
+	return filter, nil
 }
 
 func (h *Handler) CreateIncident(c *gin.Context) {
@@ -131,7 +200,7 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "platform_status must be operational, degraded, or maintenance"})
 		return
 	}
-	incident, err := h.repo.CreateIncident(c, input)
+	incident, err := h.repo.CreateIncident(c, input, middleware.UserID(c))
 	if h.respondError(c, err) {
 		return
 	}
@@ -153,7 +222,7 @@ func (h *Handler) ResolveIncident(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid incident id"})
 		return
 	}
-	if h.respondError(c, h.repo.ResolveIncident(c, c.Param("id"))) {
+	if h.respondError(c, h.repo.ResolveIncident(c, c.Param("id"), middleware.UserID(c))) {
 		return
 	}
 	status := model.PlatformOperational

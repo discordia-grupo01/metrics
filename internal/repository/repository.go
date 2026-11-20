@@ -247,7 +247,7 @@ func intervalLiteral(step time.Duration) string {
 }
 
 func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.Incident, error) {
-	query := `SELECT id,title,description,affected_services,platform_status,status,created_at,resolved_at FROM incidents`
+	query := `SELECT id,title,description,affected_services,platform_status,status,created_at,resolved_at,created_by,resolved_by FROM incidents`
 	if activeOnly {
 		query += ` WHERE status = 'active'`
 	}
@@ -260,7 +260,7 @@ func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.In
 	result := make([]model.Incident, 0)
 	for rows.Next() {
 		var i model.Incident
-		if err := rows.Scan(&i.ID, &i.Title, &i.Description, pgtype.NewMap().SQLScanner(&i.AffectedServices), &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.Title, &i.Description, pgtype.NewMap().SQLScanner(&i.AffectedServices), &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt, &i.CreatedBy, &i.ResolvedBy); err != nil {
 			return nil, err
 		}
 		result = append(result, i)
@@ -268,18 +268,66 @@ func (r *Repository) Incidents(ctx context.Context, activeOnly bool) ([]model.In
 	return result, rows.Err()
 }
 
-func (r *Repository) CreateIncident(ctx context.Context, input model.IncidentInput) (model.Incident, error) {
+func (r *Repository) ResolvedIncidents(ctx context.Context, filter model.IncidentHistoryFilter) (model.IncidentPage, error) {
+	where := []string{"status = 'resolved'"}
+	args := []any{}
+	addCondition := func(condition string, value any) {
+		args = append(args, value)
+		where = append(where, strings.ReplaceAll(condition, "?", "$"+strconv.Itoa(len(args))))
+	}
+	if filter.Search != "" {
+		addCondition("(title ILIKE ? OR description ILIKE ?)", "%"+escapeLike(filter.Search)+"%")
+	}
+	if filter.Type != "" {
+		addCondition("platform_status = ?", filter.Type)
+	}
+	if filter.Service != "" {
+		addCondition("? = ANY(affected_services)", filter.Service)
+	}
+	if filter.From != nil {
+		addCondition("created_at >= ?", *filter.From)
+	}
+	clause := " WHERE " + strings.Join(where, " AND ")
+
+	page := model.IncidentPage{Incidents: make([]model.Incident, 0)}
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM incidents`+clause, args...).Scan(&page.Total); err != nil {
+		return page, err
+	}
+
+	args = append(args, filter.Limit, filter.Offset)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id,title,description,affected_services,platform_status,status,created_at,resolved_at,created_by,resolved_by FROM incidents`+clause+
+			` ORDER BY created_at DESC, id LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)), args...)
+	if err != nil {
+		return page, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var i model.Incident
+		if err := rows.Scan(&i.ID, &i.Title, &i.Description, pgtype.NewMap().SQLScanner(&i.AffectedServices), &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt, &i.CreatedBy, &i.ResolvedBy); err != nil {
+			return page, err
+		}
+		page.Incidents = append(page.Incidents, i)
+	}
+	return page, rows.Err()
+}
+
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func escapeLike(value string) string { return likeEscaper.Replace(value) }
+
+func (r *Repository) CreateIncident(ctx context.Context, input model.IncidentInput, createdBy string) (model.Incident, error) {
 	id := uuid.New()
 	var i model.Incident
-	err := r.db.QueryRowContext(ctx, `INSERT INTO incidents (id,title,description,affected_services,platform_status)
-		VALUES ($1,$2,$3,$4,$5) RETURNING id,title,description,affected_services,platform_status,status,created_at,resolved_at`,
-		id, strings.TrimSpace(input.Title), strings.TrimSpace(input.Description), input.AffectedServices, input.PlatformStatus).
-		Scan(&i.ID, &i.Title, &i.Description, pgtype.NewMap().SQLScanner(&i.AffectedServices), &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt)
+	err := r.db.QueryRowContext(ctx, `INSERT INTO incidents (id,title,description,affected_services,platform_status,created_by)
+		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,title,description,affected_services,platform_status,status,created_at,resolved_at,created_by,resolved_by`,
+		id, strings.TrimSpace(input.Title), strings.TrimSpace(input.Description), input.AffectedServices, input.PlatformStatus, createdBy).
+		Scan(&i.ID, &i.Title, &i.Description, pgtype.NewMap().SQLScanner(&i.AffectedServices), &i.PlatformStatus, &i.Status, &i.CreatedAt, &i.ResolvedAt, &i.CreatedBy, &i.ResolvedBy)
 	return i, err
 }
 
-func (r *Repository) ResolveIncident(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE incidents SET status='resolved',resolved_at=now() WHERE id=$1 AND status='active'`, id)
+func (r *Repository) ResolveIncident(ctx context.Context, id, resolvedBy string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE incidents SET status='resolved',resolved_at=now(),resolved_by=$2 WHERE id=$1 AND status='active'`, id, resolvedBy)
 	if err != nil {
 		return err
 	}

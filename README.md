@@ -140,6 +140,11 @@ resumen de servidor e incluye:
 - `GET /v1/health/services`: devuelve a staff el último estado observado de
   cada servicio configurado. Es una señal para sugerir un incidente; no crea
   incidentes automáticamente.
+- `GET /v1/metrics/incidents`: historial de incidentes resueltos para staff,
+  del más nuevo al más viejo. Acepta `search` (título o descripción), `type`
+  (`degraded` o `maintenance`), `service`, `from` (RFC3339, sobre la fecha de
+  creación), `limit` (1-100, por defecto 20) y `offset`. Responde
+  `{ incidents, total }`.
 - `POST /v1/metrics/incidents`: crea un incidente; requiere staff.
 - `POST /v1/metrics/incidents/{id}/resolve`: resuelve un incidente activo;
   requiere staff.

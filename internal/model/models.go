@@ -48,6 +48,16 @@ type Incident struct {
 	Status           string     `json:"status"`
 	CreatedAt        time.Time  `json:"created_at"`
 	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
+	CreatedBy        *string    `json:"created_by,omitempty"`
+	ResolvedBy       *string    `json:"resolved_by,omitempty"`
+}
+
+// WithoutAuthors saca quién publicó y quién resolvió: GET /v1/status lo ve
+// cualquier usuario y los ids del staff no son para todos.
+func (i Incident) WithoutAuthors() Incident {
+	i.CreatedBy = nil
+	i.ResolvedBy = nil
+	return i
 }
 
 type IncidentInput struct {
@@ -55,6 +65,20 @@ type IncidentInput struct {
 	Description      string   `json:"description" binding:"required"`
 	AffectedServices []string `json:"affected_services"`
 	PlatformStatus   string   `json:"platform_status"`
+}
+
+type IncidentHistoryFilter struct {
+	Search  string
+	Type    string
+	Service string
+	From    *time.Time
+	Limit   int
+	Offset  int
+}
+
+type IncidentPage struct {
+	Incidents []Incident `json:"incidents"`
+	Total     int        `json:"total"`
 }
 
 const (

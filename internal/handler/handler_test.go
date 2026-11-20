@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/discordia-grupo01/metrics/internal/model"
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
 	"github.com/gin-gonic/gin"
@@ -86,4 +90,60 @@ func testContext() (*gin.Context, *httptest.ResponseRecorder) {
 
 func contextCanceledError() error {
 	return context.Canceled
+}
+
+func TestParseIncidentHistoryFilterDefaults(t *testing.T) {
+	filter, err := parseIncidentHistoryFilter(url.Values{"search": {"  demoras  "}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filter.Search != "demoras" || filter.Limit != incidentHistoryDefaultLimit || filter.Offset != 0 || filter.From != nil {
+		t.Fatalf("unexpected filter: %+v", filter)
+	}
+}
+
+func TestParseIncidentHistoryFilterReadsAllParams(t *testing.T) {
+	filter, err := parseIncidentHistoryFilter(url.Values{
+		"type":    {"maintenance"},
+		"service": {"voice"},
+		"from":    {"2026-11-01T00:00:00-03:00"},
+		"limit":   {"12"},
+		"offset":  {"24"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFrom := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+	if filter.Type != "maintenance" || filter.Service != "voice" || filter.Limit != 12 || filter.Offset != 24 ||
+		filter.From == nil || !filter.From.Equal(wantFrom) || filter.From.Location() != time.UTC {
+		t.Fatalf("unexpected filter: %+v", filter)
+	}
+}
+
+func TestParseIncidentHistoryFilterRejectsInvalidValues(t *testing.T) {
+	for name, values := range map[string]url.Values{
+		"operational type": {"type": {"operational"}},
+		"unknown type":     {"type": {"broken"}},
+		"bad from":         {"from": {"ayer"}},
+		"zero limit":       {"limit": {"0"}},
+		"huge limit":       {"limit": {"101"}},
+		"negative offset":  {"offset": {"-1"}},
+		"long search":      {"search": {strings.Repeat("a", incidentHistorySearchMax+1)}},
+	} {
+		if _, err := parseIncidentHistoryFilter(values); err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
+	}
+}
+
+func TestIncidentWithoutAuthorsHidesStaffIDs(t *testing.T) {
+	staffID := "a2a37e81-1cb1-4fcf-bf6f-e16fca0dd623"
+	incident := model.Incident{ID: "1", CreatedBy: &staffID, ResolvedBy: &staffID}
+	public := incident.WithoutAuthors()
+	if public.CreatedBy != nil || public.ResolvedBy != nil {
+		t.Fatalf("authors must be hidden: %+v", public)
+	}
+	if incident.CreatedBy == nil {
+		t.Fatal("the original incident must keep its authors")
+	}
 }

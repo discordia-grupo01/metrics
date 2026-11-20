@@ -206,6 +206,73 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
   /v1/metrics/incidents:
+    get:
+      tags: [incidents]
+      summary: Listar el historial de incidentes resueltos
+      description: Requiere staff. Devuelve los incidentes resueltos del más nuevo al más viejo, paginados y filtrados.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          description: Busca en el título y la descripción (hasta 100 caracteres).
+          schema:
+            type: string
+            maxLength: 100
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [degraded, maintenance]
+        - name: service
+          in: query
+          description: Id de un servicio afectado.
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Solo incidentes creados desde esta fecha (RFC3339).
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Página del historial.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [incidents, total]
+                properties:
+                  incidents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Incident"
+                  total:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: El usuario no tiene rol de staff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     post:
       tags: [incidents]
       summary: Publicar un incidente
@@ -524,6 +591,14 @@ components:
           type: string
           format: date-time
           nullable: true
+        created_by:
+          type: string
+          format: uuid
+          description: Id del staff que lo publicó. Solo en GET /v1/metrics/incidents; falta en los incidentes anteriores a este dato.
+        resolved_by:
+          type: string
+          format: uuid
+          description: Id del staff que lo resolvió. Solo en GET /v1/metrics/incidents; falta en los incidentes anteriores a este dato.
     IncidentList:
       type: object
       required: [incidents]
