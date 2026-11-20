@@ -91,7 +91,7 @@ docker compose up -d db migrate
 make run
 ```
 
-Para crear las tablas, `docker compose up -d` también corre el contenedor `migrate`, que aplica las migraciones de la carpeta `migrations/` y termina. Si usás otra base, `make migrate` hace lo mismo con la herramienta [golang-migrate](https://github.com/golang-migrate/migrate) instalada en tu máquina, tomando la conexión de `DATABASE_URL`.
+Para crear las tablas, `docker compose up -d` también corre el contenedor `migrate`, que aplica las migraciones de la carpeta `migrations/` y termina. Además, el servicio aplica al arrancar las migraciones pendientes de `migrations/` (vienen embebidas en el binario y usan la misma tabla `schema_migrations` que golang-migrate); así un deploy en Render no queda con el esquema viejo. Cada script corre en una transacción, por lo que no pueden usar `CREATE INDEX CONCURRENTLY`. Si usás otra base, `make migrate` hace lo mismo con la herramienta [golang-migrate](https://github.com/golang-migrate/migrate) instalada en tu máquina, tomando la conexión de `DATABASE_URL`.
 
 ## Variables de entorno
 

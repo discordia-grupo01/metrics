@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -20,6 +21,7 @@ import (
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
 	"github.com/discordia-grupo01/metrics/internal/telemetry"
+	"github.com/discordia-grupo01/metrics/migrations"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -71,6 +73,11 @@ func main() {
 	defer db.Close()
 	if err := db.Ping(); err != nil {
 		logging.Fatalf("%v", err)
+	}
+	// Render no corre `make migrate`: sin esto, una migración nueva no llega a
+	// producción y las rutas que usan sus columnas responden 500.
+	if err := runMigrations(db); err != nil {
+		logging.Fatalf("migrations: %v", err)
 	}
 
 	repo := repository.New(db)
@@ -249,4 +256,18 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func runMigrations(db *sql.DB) error {
+	list, err := repository.LoadMigrations(migrations.FS)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	applied, err := repository.Migrate(ctx, db, list)
+	for _, version := range applied {
+		logging.Infof("migration applied: %06d", version)
+	}
+	return err
 }
