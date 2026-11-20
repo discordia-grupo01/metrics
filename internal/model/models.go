@@ -71,6 +71,18 @@ type Incident struct {
 	Status           string     `json:"status" enums:"active,resolved"`
 	CreatedAt        time.Time  `json:"created_at" format:"date-time"`
 	ResolvedAt       *time.Time `json:"resolved_at,omitempty" format:"date-time" validate:"optional"`
+	// CreatedBy y ResolvedBy son ids de staff. Faltan en los incidentes
+	// anteriores a guardar este dato y nunca salen en GET /v1/status.
+	CreatedBy  *string `json:"created_by,omitempty" format:"uuid" validate:"optional"`
+	ResolvedBy *string `json:"resolved_by,omitempty" format:"uuid" validate:"optional"`
+}
+
+// WithoutAuthors saca quién publicó y quién resolvió: GET /v1/status lo ve
+// cualquier usuario y los ids del staff no son para todos.
+func (i Incident) WithoutAuthors() Incident {
+	i.CreatedBy = nil
+	i.ResolvedBy = nil
+	return i
 }
 
 type IncidentInput struct {
@@ -79,6 +91,21 @@ type IncidentInput struct {
 	AffectedServices []string `json:"affected_services" example:"metrics,gateway" validate:"optional"`
 	// PlatformStatus es degraded si no se envía.
 	PlatformStatus string `json:"platform_status" enums:"operational,degraded,maintenance" default:"degraded" validate:"optional"`
+}
+
+type IncidentHistoryFilter struct {
+	Search  string
+	Type    string
+	Service string
+	From    *time.Time
+	Limit   int
+	Offset  int
+}
+
+// IncidentPage es una página del historial de incidentes resueltos.
+type IncidentPage struct {
+	Incidents []Incident `json:"incidents"`
+	Total     int        `json:"total"`
 }
 
 const (

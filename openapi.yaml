@@ -133,6 +133,88 @@ paths:
       tags:
         - Platform metrics
   /v1/metrics/incidents:
+    get:
+      description: Requiere staff. Devuelve los incidentes resueltos del más nuevo al
+        más viejo, paginados. `created_by` y `resolved_by` son los ids del staff
+        que lo publicó y lo resolvió; faltan en los incidentes anteriores a
+        guardar ese dato.
+      parameters:
+        - description: Busca en el título y la descripción (hasta 100 caracteres)
+          in: query
+          name: search
+          schema:
+            type: string
+            maxLength: 100
+        - description: Tipo de incidente
+          in: query
+          name: type
+          schema:
+            type: string
+            enum:
+              - degraded
+              - maintenance
+        - description: Id de un servicio afectado
+          in: query
+          name: service
+          schema:
+            type: string
+        - description: Solo incidentes creados desde esta fecha (RFC3339)
+          in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - description: Tamaño de página
+          in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - description: Cantidad de incidentes a saltear
+          in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Página del historial
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.IncidentPage"
+        "400":
+          description: Algún parámetro de la query es inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "401":
+          description: Falta una credencial válida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "403":
+          description: El usuario no tiene rol de staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+        "500":
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/model.ErrorResponse"
+      security:
+        - BearerAuth: []
+      summary: Listar el historial de incidentes resueltos
+      tags:
+        - Incidents
     post:
       description: Requiere que el usuario autenticado sea staff. Si no se envía
         `platform_status`, se usa `degraded`.
@@ -646,6 +728,12 @@ components:
         created_at:
           format: date-time
           type: string
+        created_by:
+          description: |-
+            CreatedBy y ResolvedBy son ids de staff. Faltan en los incidentes
+            anteriores a guardar este dato y nunca salen en GET /v1/status.
+          format: uuid
+          type: string
         description:
           type: string
         id:
@@ -659,6 +747,9 @@ components:
           type: string
         resolved_at:
           format: date-time
+          type: string
+        resolved_by:
+          format: uuid
           type: string
         status:
           enum:
@@ -704,6 +795,18 @@ components:
       required:
         - description
         - title
+      type: object
+    model.IncidentPage:
+      properties:
+        incidents:
+          items:
+            $ref: "#/components/schemas/model.Incident"
+          type: array
+        total:
+          type: integer
+      required:
+        - incidents
+        - total
       type: object
     model.PlatformStatusResponse:
       properties:
