@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -85,13 +86,13 @@ func (p *AMQPPublisher) publish(ctx context.Context, routingKey string, body []b
 		Body:         body,
 		Headers:      telemetry.InjectAMQP(ctx, nil),
 	}
-	if err := channel.PublishWithContext(ctx, platformExchange, routingKey, false, false, message); err != nil {
+	if err := publishConfirmed(ctx, channel, platformExchange, routingKey, message); err != nil {
 		p.reset()
 		channel, err = p.getChannel()
 		if err != nil {
 			return fmt.Errorf("reconnect after publish failure: %w", err)
 		}
-		if err := channel.PublishWithContext(ctx, platformExchange, routingKey, false, false, message); err != nil {
+		if err := publishConfirmed(ctx, channel, platformExchange, routingKey, message); err != nil {
 			return fmt.Errorf("publish after reconnect: %w", err)
 		}
 	}
@@ -131,6 +132,11 @@ func (p *AMQPPublisher) getChannel() (*amqp091.Channel, error) {
 		_ = conn.Close()
 		return nil, err
 	}
+	if err := channel.Confirm(false); err != nil {
+		_ = channel.Close()
+		_ = conn.Close()
+		return nil, err
+	}
 	p.conn, p.channel = conn, channel
 	return channel, nil
 }
@@ -149,4 +155,37 @@ func (p *AMQPPublisher) reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.closeLocked()
+}
+
+// confirmTimeout acota cuánto se espera la confirmación del broker.
+var confirmTimeout = 5 * time.Second
+
+// publishConfirmed publica y espera el ack del broker: sin él, un nil solo
+// significa que el mensaje salió por el socket, no que RabbitMQ lo guardó, y
+// el outbox marcaría como publicado un evento que se pudo perder.
+func publishConfirmed(ctx context.Context, ch *amqp091.Channel, exchange, routingKey string, msg amqp091.Publishing) error {
+	confirm, err := ch.PublishWithDeferredConfirmWithContext(ctx, exchange, routingKey, false, false, msg)
+	if err != nil {
+		return err
+	}
+	return waitConfirm(ctx, confirm)
+}
+
+// deferredConfirm es lo que usamos de *DeferredConfirmation; existe para poder
+// probar la espera sin un RabbitMQ real.
+type deferredConfirm interface {
+	WaitContext(ctx context.Context) (bool, error)
+}
+
+func waitConfirm(ctx context.Context, confirm deferredConfirm) error {
+	ctx, cancel := context.WithTimeout(ctx, confirmTimeout)
+	defer cancel()
+	acked, err := confirm.WaitContext(ctx)
+	if err != nil {
+		return fmt.Errorf("esperando la confirmación del broker: %w", err)
+	}
+	if !acked {
+		return errors.New("el broker rechazó el mensaje")
+	}
+	return nil
 }
