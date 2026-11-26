@@ -90,22 +90,40 @@ func validateID(value string) error {
 	return nil
 }
 
+// ParsePeriod lee from y to. Sin to se usa now; sin from, 30 días antes de to
+// (no de now), como documenta el contrato.
 func ParsePeriod(values url.Values, now time.Time) (time.Time, time.Time, error) {
 	to := now.UTC()
-	from := to.Add(-30 * 24 * time.Hour)
 	var err error
-	if value := values.Get("from"); value != "" {
-		from, err = time.Parse(time.RFC3339, value)
+	if value := values.Get("to"); value != "" {
+		to, err = ParseTimestamp(value)
 	}
+	from := to.Add(-30 * 24 * time.Hour)
 	if err == nil {
-		if value := values.Get("to"); value != "" {
-			to, err = time.Parse(time.RFC3339, value)
+		if value := values.Get("from"); value != "" {
+			from, err = ParseTimestamp(value)
 		}
 	}
 	if err != nil || !from.Before(to) || to.Sub(from) > 366*24*time.Hour {
 		return time.Time{}, time.Time{}, fmt.Errorf("%w: from/to must be RFC3339, from before to, maximum 366 days", ErrInvalidPeriod)
 	}
 	return from.UTC(), to.UTC(), nil
+}
+
+func ParseTimestamp(value string) (time.Time, error) {
+	value = strings.ToUpper(value)
+	leapSecond := len(value) >= 19 && value[10] == 'T' && value[16] == ':' && value[17:19] == "60"
+	if leapSecond {
+		value = value[:17] + "59" + value[19:]
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if leapSecond {
+		parsed = parsed.Add(time.Second)
+	}
+	return parsed, nil
 }
 
 func WriteCSV(w http.ResponseWriter, summary model.ServerSummary) error {

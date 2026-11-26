@@ -23,9 +23,11 @@ build:
 # Genera openapi.yaml desde las anotaciones swag del codigo (mismo flujo que
 # servers) y valida la sintaxis del resultado. --requiredByDefault: todos los
 # campos de las respuestas se devuelven siempre salvo los marcados omitempty.
+# openapi-postprocess.mjs corrige lo que swag no expresa: media types del CSV y pattern de IncidentInput.
 openapi:
 	go run github.com/swaggo/swag/cmd/swag@v1.16.4 init -g cmd/api/main.go -o ./.openapi-tmp --parseInternal --requiredByDefault -q
 	npx --yes swagger2openapi@7 ./.openapi-tmp/swagger.yaml -o openapi.yaml --patch
+	node scripts/openapi-postprocess.mjs openapi.yaml
 	npx --yes swagger-cli@4.0.4 validate openapi.yaml
 
 migrate:

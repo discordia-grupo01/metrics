@@ -11,3 +11,5 @@
 /schemathesis-report/
 
 __pycache__/
+specforge.toml
+users.toml

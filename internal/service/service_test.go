@@ -21,6 +21,44 @@ func TestParsePeriodDefaultsToLastThirtyDays(t *testing.T) {
 	}
 }
 
+// Solo con to, from es 30 días antes de to (no de now): un to del pasado es válido.
+func TestParsePeriodDefaultsFromRelativeToTo(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	to := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	from, gotTo, err := ParsePeriod(url.Values{"to": {to.Format(time.RFC3339)}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotTo.Equal(to) || !from.Equal(to.Add(-30*24*time.Hour)) {
+		t.Fatalf("unexpected period: %v - %v", from, gotTo)
+	}
+}
+
+// format: date-time es RFC 3339, que admite t/z en minúscula y el segundo 60.
+func TestParseTimestampAcceptsAllRFC3339Forms(t *testing.T) {
+	tests := map[string]time.Time{
+		"2020-01-01T00:00:00Z":        time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		"2020-01-01t00:00:00z":        time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		"2020-01-01T00:00:00.5+03:00": time.Date(2019, 12, 31, 21, 0, 0, 5e8, time.UTC),
+		"2016-12-31T23:59:60Z":        time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	for value, want := range tests {
+		got, err := ParseTimestamp(value)
+		if err != nil {
+			t.Errorf("%s: %v", value, err)
+			continue
+		}
+		if !got.Equal(want) {
+			t.Errorf("%s = %v, want %v", value, got, want)
+		}
+	}
+	for _, value := range []string{"", "invalid", "2020-01-01", "2020-01-01T00:00:61Z", "2020-01-01 00:00:00Z"} {
+		if _, err := ParseTimestamp(value); err == nil {
+			t.Errorf("%q: expected error", value)
+		}
+	}
+}
+
 func TestParsePeriodRejectsInvalidOrTooLongRanges(t *testing.T) {
 	_, _, err := ParsePeriod(url.Values{"from": []string{"2026-01-02T00:00:00Z"}, "to": []string{"2026-01-01T00:00:00Z"}}, time.Now())
 	if err == nil {

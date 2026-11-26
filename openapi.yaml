@@ -83,7 +83,8 @@ paths:
         en `to`."
       parameters:
         - description: Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes
-            de `to`)
+            de `to`). Debe ser anterior a `to` y estar a lo sumo 366 días antes;
+            sin `to`, eso se mide contra ahora
           in: query
           name: from
           schema:
@@ -324,7 +325,8 @@ paths:
             type: string
             format: uuid
         - description: Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes
-            de `to`)
+            de `to`). Debe ser anterior a `to` y estar a lo sumo 366 días antes;
+            sin `to`, eso se mide contra ahora
           in: query
           name: from
           schema:
@@ -385,7 +387,8 @@ paths:
             type: string
             format: uuid
         - description: Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes
-            de `to`)
+            de `to`). Debe ser anterior a `to` y estar a lo sumo 366 días antes;
+            sin `to`, eso se mide contra ahora
           in: query
           name: from
           schema:
@@ -407,10 +410,6 @@ paths:
               schema:
                 type: string
           content:
-            application/json:
-              schema:
-                type: string
-                format: binary
             text/csv:
               schema:
                 type: string
@@ -421,16 +420,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/model.ErrorResponse"
-            text/csv:
-              schema:
-                $ref: "#/components/schemas/model.ErrorResponse"
         "401":
           description: Falta una credencial válida
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/model.ErrorResponse"
-            text/csv:
               schema:
                 $ref: "#/components/schemas/model.ErrorResponse"
         "403":
@@ -439,16 +432,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/model.ErrorResponse"
-            text/csv:
-              schema:
-                $ref: "#/components/schemas/model.ErrorResponse"
         "500":
           description: Error interno del servidor
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/model.ErrorResponse"
-            text/csv:
               schema:
                 $ref: "#/components/schemas/model.ErrorResponse"
       security:
@@ -470,7 +457,8 @@ paths:
             type: string
             format: uuid
         - description: Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes
-            de `to`)
+            de `to`). Debe ser anterior a `to` y estar a lo sumo 366 días antes;
+            sin `to`, eso se mide contra ahora
           in: query
           name: from
           schema:
@@ -780,9 +768,11 @@ components:
           maxLength: 5000
           minLength: 1
           type: string
+          pattern: '\S'
         platform_status:
           default: degraded
-          description: PlatformStatus es degraded si no se envía.
+          description: PlatformStatus es degraded si se omite; enviado vacío o null es
+            inválido.
           enum:
             - operational
             - degraded
@@ -792,6 +782,7 @@ components:
           maxLength: 160
           minLength: 1
           type: string
+          pattern: '\S'
       required:
         - description
         - title

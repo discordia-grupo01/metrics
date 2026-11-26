@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -200,6 +201,8 @@ func TestCreateIncidentRejectsInvalidInput(t *testing.T) {
 		{name: "missing title", body: `{"description":"outage"}`, wantField: "title"},
 		{name: "missing description", body: `{"title":"outage"}`, wantField: "description"},
 		{name: "invalid status", body: `{"title":"outage","description":"details","platform_status":"unknown"}`, wantField: "platform_status"},
+		{name: "empty status", body: `{"title":"outage","description":"details","platform_status":""}`, wantField: "platform_status"},
+		{name: "null status", body: `{"title":"outage","description":"details","platform_status":null}`, wantField: "platform_status"},
 		{name: "nul in title", body: `{"title":"out\u0000age","description":"details"}`, wantField: "title"},
 		{name: "nul in description", body: `{"title":"outage","description":"\u0000"}`, wantField: "description"},
 		{name: "nul in service", body: `{"title":"outage","description":"details","affected_services":["\u0000"]}`, wantField: "affected_services"},
@@ -228,6 +231,28 @@ func TestCreateIncidentRejectsInvalidInput(t *testing.T) {
 				t.Fatalf("details = %v, want field %q", details, test.wantField)
 			}
 		})
+	}
+}
+
+// El error del período nombra un parámetro enviado: con solo from, to tomó el
+// default y lo que queda fuera del rango es from.
+func TestPeriodBlamesSentParam(t *testing.T) {
+	tests := map[string]string{
+		"/?from=2000-01-01T00:00:00Z":                         "from",
+		"/?from=invalid&to=2000-01-01T00:00:00Z":              "from",
+		"/?to=invalid":                                        "to",
+		"/?from=2001-01-01T00:00:00Z&to=2000-01-01T00:00:00Z": "to",
+		"/?from=2000-01-01T00:00:00Z&to=2002-01-01T00:00:00Z": "to",
+	}
+	for target, want := range tests {
+		context, response := testContext()
+		context.Request = httptest.NewRequest(http.MethodGet, target, nil)
+		if _, _, ok := (&Handler{}).period(context); ok {
+			t.Fatalf("%s: period accepted", target)
+		}
+		if _, details := apierrtest.Envelope(t, response); details["param"] != want {
+			t.Errorf("%s: details = %v, want param %q", target, details, want)
+		}
 	}
 }
 
@@ -283,6 +308,44 @@ func TestIncidentsReturnsActiveIncidents(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Omitir platform_status sigue usando degraded; solo "" y null se rechazan.
+func TestCreateIncidentDefaultsOmittedStatusToDegraded(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.ValueConverterOption(textArrayConverter{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now().UTC()
+	mock.ExpectQuery("INSERT INTO incidents").
+		WithArgs(sqlmock.AnyArg(), "outage", "details", sqlmock.AnyArg(), "degraded", "staff").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "description", "affected_services", "platform_status", "status", "created_at", "resolved_at", "created_by", "resolved_by"}).
+			AddRow("incident-id", "outage", "details", "{}", "degraded", "active", now, nil, "staff", nil))
+
+	context, response := testContext()
+	context.Set("authorizer", testAuthorizer{staff: true})
+	context.Set("user_id", "staff")
+	context.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"title":"outage","description":"details"}`))
+	context.Request.Header.Set("Content-Type", "application/json")
+
+	(&Handler{repo: repository.New(db)}).CreateIncident(context)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d body = %s, want 201", response.Code, response.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// textArrayConverter deja pasar []string, que pgx convierte solo y sqlmock no.
+type textArrayConverter struct{}
+
+func (textArrayConverter) ConvertValue(value any) (driver.Value, error) {
+	if values, ok := value.([]string); ok {
+		return strings.Join(values, ","), nil
+	}
+	return driver.DefaultParameterConverter.ConvertValue(value)
 }
 
 func uuidForTest() string {
