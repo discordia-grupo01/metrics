@@ -85,11 +85,13 @@ func (i Incident) WithoutAuthors() Incident {
 	return i
 }
 
+// IncidentInput: title y description se recortan y se rechazan si quedan
+// vacíos. swag no emite pattern; scripts/openapi-postprocess.mjs agrega \S.
 type IncidentInput struct {
 	Title            string   `json:"title" binding:"required" minLength:"1" maxLength:"160"`
 	Description      string   `json:"description" binding:"required" minLength:"1" maxLength:"5000"`
 	AffectedServices []string `json:"affected_services" example:"metrics,gateway" validate:"optional"`
-	// PlatformStatus es degraded si no se envía.
+	// PlatformStatus es degraded si se omite; enviado vacío o null es inválido.
 	PlatformStatus string `json:"platform_status" enums:"operational,degraded,maintenance" default:"degraded" validate:"optional"`
 }
 

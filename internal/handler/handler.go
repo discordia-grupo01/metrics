@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/discordia-grupo01/metrics/internal/repository"
 	"github.com/discordia-grupo01/metrics/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 )
@@ -72,7 +74,7 @@ func (h *Handler) ServiceHealth(c *gin.Context) {
 // @Produce      json
 // @Security     BearerAuth
 // @Param        serverId  path   string  true   "UUID del servidor"  format(uuid)
-// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`)"  format(date-time)
+// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`). Debe ser anterior a `to` y estar a lo sumo 366 días antes; sin `to`, eso se mide contra ahora"  format(date-time)
 // @Param        to        query  string  false  "Fin exclusivo del período en RFC3339 (por defecto, ahora); el período máximo es de 366 días"  format(date-time)
 // @Success      200  {object}  model.ServerSummary  "Resumen de actividad"
 // @Failure      400  {object}  model.ErrorResponse  "Servidor o período inválidos"
@@ -100,7 +102,7 @@ func (h *Handler) ServerSummary(c *gin.Context) {
 // @Produce      json
 // @Security     BearerAuth
 // @Param        serverId  path   string  true   "UUID del servidor"  format(uuid)
-// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`)"  format(date-time)
+// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`). Debe ser anterior a `to` y estar a lo sumo 366 días antes; sin `to`, eso se mide contra ahora"  format(date-time)
 // @Param        to        query  string  false  "Fin exclusivo del período en RFC3339 (por defecto, ahora); el período máximo es de 366 días"  format(date-time)
 // @Success      200  {object}  model.GrowthResponse  "Serie diaria de miembros"
 // @Failure      400  {object}  model.ErrorResponse   "Servidor o período inválidos"
@@ -128,7 +130,7 @@ func (h *Handler) ServerGrowth(c *gin.Context) {
 // @Produce      json,text/csv
 // @Security     BearerAuth
 // @Param        serverId  path   string  true   "UUID del servidor"  format(uuid)
-// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`)"  format(date-time)
+// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`). Debe ser anterior a `to` y estar a lo sumo 366 días antes; sin `to`, eso se mide contra ahora"  format(date-time)
 // @Param        to        query  string  false  "Fin exclusivo del período en RFC3339 (por defecto, ahora); el período máximo es de 366 días"  format(date-time)
 // @Success      200  {file}    file                 "Archivo CSV generado (text/csv); los errores responden JSON"
 // @Header       200  {string}  Content-Disposition  "Nombre sugerido del archivo, attachment; filename=metrics.csv"
@@ -162,7 +164,7 @@ func (h *Handler) Export(c *gin.Context) {
 // @Tags         Platform metrics
 // @Produce      json
 // @Security     BearerAuth
-// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`)"  format(date-time)
+// @Param        from      query  string  false  "Inicio inclusivo del período en RFC3339 (por defecto, 30 días antes de `to`). Debe ser anterior a `to` y estar a lo sumo 366 días antes; sin `to`, eso se mide contra ahora"  format(date-time)
 // @Param        to        query  string  false  "Fin exclusivo del período en RFC3339 (por defecto, ahora); el período máximo es de 366 días"  format(date-time)
 // @Success      200  {object}  model.GlobalSummary  "Resumen global"
 // @Failure      400  {object}  model.ErrorResponse  "Período inválido"
@@ -304,7 +306,7 @@ func parseIncidentHistoryFilter(values url.Values) (model.IncidentHistoryFilter,
 		return filter, &invalidHistoryParam{"type", "El tipo debe ser degraded o maintenance."}
 	}
 	if value := values.Get("from"); value != "" {
-		from, err := time.Parse(time.RFC3339, value)
+		from, err := service.ParseTimestamp(value)
 		if err != nil {
 			return filter, &invalidHistoryParam{"from", "from debe ser una fecha RFC3339."}
 		}
@@ -350,7 +352,7 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 		return
 	}
 	var input model.IncidentInput
-	bindErr := c.ShouldBindJSON(&input)
+	bindErr := c.ShouldBindBodyWith(&input, binding.JSON)
 	if bindErr != nil ||
 		strings.TrimSpace(input.Title) == "" ||
 		strings.TrimSpace(input.Description) == "" ||
@@ -363,7 +365,12 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 		apierr.InvalidBody(c, field, "invalid_characters", "El campo tiene caracteres inválidos.")
 		return
 	}
-	if input.PlatformStatus == "" {
+	statusSent, err := platformStatusSent(c)
+	if err != nil {
+		apierr.InvalidBody(c, "", "", "El cuerpo de la solicitud no es un JSON válido.")
+		return
+	}
+	if !statusSent {
 		input.PlatformStatus = model.PlatformDegraded
 	}
 	if !validPlatformStatus(input.PlatformStatus) {
@@ -376,6 +383,17 @@ func (h *Handler) CreateIncident(c *gin.Context) {
 	}
 	h.publishStatusChanged(c, input.PlatformStatus)
 	c.JSON(http.StatusCreated, incident)
+}
+
+func platformStatusSent(c *gin.Context) (bool, error) {
+	raw, _ := c.Get(gin.BodyBytesKey)
+	body, _ := raw.([]byte)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return false, err
+	}
+	_, ok := fields["platform_status"]
+	return ok, nil
 }
 
 func validPlatformStatus(value string) bool {
@@ -450,10 +468,11 @@ func invalidPeriod(c *gin.Context, query url.Values) {
 }
 
 // periodParam indica el parámetro del período al que se atribuye el error:
-// from si no parsea como RFC3339 y, en cualquier otro caso, to.
+// from si no parsea como RFC3339 o si es el único que se envió (to tomó el
+// default, así que lo que sobra es from) y, en cualquier otro caso, to.
 func periodParam(query url.Values) string {
 	if value := query.Get("from"); value != "" {
-		if _, err := time.Parse(time.RFC3339, value); err != nil {
+		if _, err := service.ParseTimestamp(value); err != nil || query.Get("to") == "" {
 			return "from"
 		}
 	}
