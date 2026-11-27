@@ -87,6 +87,8 @@ func Internal(c *gin.Context) {
 // (404 NOT_FOUND) y método no permitido (405 METHOD_NOT_ALLOWED).
 func Register(router *gin.Engine) {
 	router.HandleMethodNotAllowed = true
+	router.RedirectTrailingSlash = false
+	router.RedirectFixedPath = false
 	router.NoRoute(NotFound)
 	router.NoMethod(MethodNotAllowed)
 }
