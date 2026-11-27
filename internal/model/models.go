@@ -90,7 +90,7 @@ func (i Incident) WithoutAuthors() Incident {
 type IncidentInput struct {
 	Title            string   `json:"title" binding:"required" minLength:"1" maxLength:"160"`
 	Description      string   `json:"description" binding:"required" minLength:"1" maxLength:"5000"`
-	AffectedServices []string `json:"affected_services" example:"metrics,gateway" validate:"optional"`
+	AffectedServices []string `json:"affected_services" example:"metrics,gateway" validate:"optional" extensions:"x-nullable"`
 	// PlatformStatus es degraded si se omite; enviado vacío o null es inválido.
 	PlatformStatus string `json:"platform_status" enums:"operational,degraded,maintenance" default:"degraded" validate:"optional"`
 }

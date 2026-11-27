@@ -99,3 +99,18 @@ func TestInvalidBodyWithoutFieldHasEmptyDetails(t *testing.T) {
 		t.Fatalf("details = %v, want {}", details)
 	}
 }
+
+func TestRegisterNeverRedirects(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	apierr.Register(router)
+	router.GET("/v1/things/:id", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	for _, path := range []string{"/v1/things/", "/v1/things/%2F", "/v1//things/1"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code >= 300 && recorder.Code < 400 {
+			t.Errorf("GET %s answered %d with Location %q, want no redirect", path, recorder.Code, recorder.Header().Get("Location"))
+		}
+	}
+}
