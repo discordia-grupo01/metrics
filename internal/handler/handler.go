@@ -80,6 +80,7 @@ func (h *Handler) ServiceHealth(c *gin.Context) {
 // @Failure      400  {object}  model.ErrorResponse  "Servidor o período inválidos"
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      404  {object}  model.ErrorResponse  "La ruta no existe (por ejemplo, un serverId con barras)"
 // @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/servers/{serverId}/metrics [get]
 func (h *Handler) ServerSummary(c *gin.Context) {
@@ -108,6 +109,7 @@ func (h *Handler) ServerSummary(c *gin.Context) {
 // @Failure      400  {object}  model.ErrorResponse   "Servidor o período inválidos"
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      404  {object}  model.ErrorResponse  "La ruta no existe (por ejemplo, un serverId con barras)"
 // @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/servers/{serverId}/metrics/growth [get]
 func (h *Handler) ServerGrowth(c *gin.Context) {
@@ -137,6 +139,7 @@ func (h *Handler) ServerGrowth(c *gin.Context) {
 // @Failure      400  {object}  model.ErrorResponse  "Servidor o período inválidos"
 // @Failure      401  {object}  model.ErrorResponse  "Falta una credencial válida"
 // @Failure      403  {object}  model.ErrorResponse  "El usuario no tiene rol de staff"
+// @Failure      404  {object}  model.ErrorResponse  "La ruta no existe (por ejemplo, un serverId con barras)"
 // @Failure      500  {object}  model.ErrorResponse  "Error interno del servidor"
 // @Router       /v1/servers/{serverId}/metrics/export.csv [get]
 func (h *Handler) Export(c *gin.Context) {
